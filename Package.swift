@@ -14,22 +14,12 @@ let package = Package(
             name: "InstantDB",
             targets: ["InstantDB"]
         ),
-        .executable(
-            name: "BasicExample",
-            targets: ["BasicExample"]
-        ),
     ],
     targets: [
         .target(
             name: "InstantDB",
             dependencies: [],
             path: "Sources/InstantDB"
-        ),
-        .executableTarget(
-            name: "BasicExample",
-            dependencies: ["InstantDB"],
-            path: "Examples",
-            sources: ["BasicExample.swift"]
         ),
         .testTarget(
             name: "InstantDBTests",
