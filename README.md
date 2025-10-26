@@ -1,4 +1,4 @@
-# InstantDB iOS SDK
+# InstantDB iOS SDK (unofficial)
 
 > ⚠️ **Early Development Warning**: This SDK is in very early development (v0.0.1)
 
