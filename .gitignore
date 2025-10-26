@@ -1,0 +1,16 @@
+.DS_Store
+/.build
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc
+
+# Documentation helpers
+ARCHITECTURE.md
+DEVELOPMENT.md
+INSTANTDB_PROTOCOL.md
+PROJECT_OVERVIEW.md
+PROTOCOL_SUMMARY.md
+SWIFT_SDK_REFERENCE.md
