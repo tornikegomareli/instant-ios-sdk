@@ -1,5 +1,6 @@
 import SwiftUI
 import InstantDB
+import Clerk
 
 struct AuthDemoView: View {
   @EnvironmentObject var authManager: AuthManager
@@ -66,6 +67,7 @@ struct UnauthenticatedView: View {
   @State private var isLoading = false
   @State private var errorMessage: String?
   @State private var codeSent = false
+  @State private var showClerkAuth = false
 
   var body: some View {
     VStack(spacing: 20) {
@@ -112,6 +114,34 @@ struct UnauthenticatedView: View {
 
       Divider()
 
+      Text("Clerk Authentication")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+      if Clerk.shared.user != nil {
+        VStack(spacing: 8) {
+          Text("✓ Signed in to Clerk")
+            .font(.caption)
+            .foregroundStyle(.green)
+
+          Button(action: signInWithClerk) {
+            Label("Link Clerk to InstantDB", systemImage: "link")
+              .frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(isLoading)
+        }
+      } else {
+        Button(action: openClerkSignIn) {
+          Label("Sign in with Clerk", systemImage: "key.fill")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isLoading)
+      }
+
+      Divider()
+
       Text("Or sign in with")
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -154,6 +184,9 @@ struct UnauthenticatedView: View {
       }
       .buttonStyle(.bordered)
       .disabled(isLoading)
+    }
+    .sheet(isPresented: $showClerkAuth) {
+      AuthView()
     }
   }
 
@@ -334,10 +367,60 @@ struct UnauthenticatedView: View {
       }
     }
   }
+
+  private func openClerkSignIn() {
+    showClerkAuth = true
+  }
+
+  private func signInWithClerk() {
+    isLoading = true
+    errorMessage = nil
+
+    Task {
+      do {
+        // Check if user is signed in to Clerk
+        guard let user = Clerk.shared.user else {
+          await MainActor.run {
+            errorMessage = "Please sign in with Clerk first"
+            isLoading = false
+          }
+          return
+        }
+
+        // Get the JWT token from Clerk session
+        guard let session = Clerk.shared.session else {
+          await MainActor.run {
+            errorMessage = "No active Clerk session found"
+            isLoading = false
+          }
+          return
+        }
+
+        let token = try await session.getToken()
+
+        print("Clerk token: \(token!.jwt)")
+
+        // Sign in to InstantDB with Clerk token
+        try await authManager.signInWithIdToken(
+          clientName: "clerk",
+          idToken: token!.jwt
+        )
+
+        await MainActor.run {
+          isLoading = false
+        }
+      } catch {
+        await MainActor.run {
+          errorMessage = "Clerk sign-in error: \(error.localizedDescription)"
+          isLoading = false
+        }
+      }
+    }
+  }
 }
 
 struct GuestView: View {
-  let user: User
+  let user: InstantDB.User
   @EnvironmentObject var authManager: AuthManager
   @State private var showUpgrade = false
 
@@ -383,7 +466,7 @@ struct GuestView: View {
 }
 
 struct AuthenticatedView: View {
-  let user: User
+  let user: InstantDB.User
   @EnvironmentObject var authManager: AuthManager
 
   var body: some View {
