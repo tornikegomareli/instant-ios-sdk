@@ -12,6 +12,7 @@
 		E6E3FF652EAED511003DBAD3 /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E6E3FF642EAED511003DBAD3 /* InstantDB */; };
 		E6E505F02EB2B5F300F37F34 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = E6E505EF2EB2B5F300F37F34 /* GoogleSignIn */; };
 		E6E505F22EB2B5F300F37F34 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = E6E505F12EB2B5F300F37F34 /* GoogleSignInSwift */; };
+		E6E505F82EB2C60C00F37F34 /* Clerk in Frameworks */ = {isa = PBXBuildFile; productRef = E6E505F72EB2C60C00F37F34 /* Clerk */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +45,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E6E505F82EB2C60C00F37F34 /* Clerk in Frameworks */,
 				E6E505F22EB2B5F300F37F34 /* GoogleSignInSwift in Frameworks */,
 				E677AD992EAED5C30067ED59 /* InstantDB in Frameworks */,
 				E6E505F02EB2B5F300F37F34 /* GoogleSignIn in Frameworks */,
@@ -96,6 +98,7 @@
 				E677AD982EAED5C30067ED59 /* InstantDB */,
 				E6E505EF2EB2B5F300F37F34 /* GoogleSignIn */,
 				E6E505F12EB2B5F300F37F34 /* GoogleSignInSwift */,
+				E6E505F72EB2C60C00F37F34 /* Clerk */,
 			);
 			productName = "instantdb-example";
 			productReference = E6637CE52EA845F000EE0ECD /* instantdb-example.app */;
@@ -128,6 +131,7 @@
 			packageReferences = (
 				E677AD972EAED5C30067ED59 /* XCLocalSwiftPackageReference "../../instant-ios-sdk" */,
 				E6E505EE2EB2B5F300F37F34 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				E6E505F62EB2C60C00F37F34 /* XCRemoteSwiftPackageReference "clerk-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E6637CE62EA845F000EE0ECD /* Products */;
@@ -388,6 +392,14 @@
 				minimumVersion = 9.0.0;
 			};
 		};
+		E6E505F62EB2C60C00F37F34 /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.69.3;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -412,6 +424,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E6E505EE2EB2B5F300F37F34 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignInSwift;
+		};
+		E6E505F72EB2C60C00F37F34 /* Clerk */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E6E505F62EB2C60C00F37F34 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = Clerk;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
