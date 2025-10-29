@@ -5,18 +5,22 @@
 //  Created by Tornike Gomareli on 29.10.25.
 //
 
+import Foundation
+import AuthenticationServices
 
 @MainActor
-private internal class OAuthSession: NSObject, ASWebAuthenticationPresentationContextProviding {
+internal final class OAuthSession: NSObject, ASWebAuthenticationPresentationContextProviding {
   private let provider: OAuthProvider
   private let redirectURI: String
   private let appID: String
+  private let baseURL: String
   private var continuation: CheckedContinuation<String, Error>?
 
-  init(provider: OAuthProvider, redirectURI: String, appID: String) {
+  init(provider: OAuthProvider, redirectURI: String, appID: String, baseURL: String) {
     self.provider = provider
     self.redirectURI = redirectURI
     self.appID = appID
+    self.baseURL = baseURL
   }
 
   func authenticate(presentationAnchor: ASPresentationAnchor) async throws -> String {
@@ -50,26 +54,14 @@ private internal class OAuthSession: NSObject, ASWebAuthenticationPresentationCo
   }
 
   private func buildAuthURL() -> URL {
-    var components = URLComponents(string: provider.authorizationEndpoint)!
+    var components = URLComponents(string: "\(baseURL)/runtime/oauth/start")!
 
-    var queryItems = [
-      URLQueryItem(name: "client_id", value: provider.clientID),
-      URLQueryItem(name: "redirect_uri", value: redirectURI),
-      URLQueryItem(name: "response_type", value: "code"),
-      URLQueryItem(name: "state", value: appID)
+    components.queryItems = [
+      URLQueryItem(name: "app_id", value: appID),
+      URLQueryItem(name: "client_name", value: provider.clientName),
+      URLQueryItem(name: "redirect_uri", value: redirectURI)
     ]
 
-    switch provider {
-    case .apple:
-      queryItems.append(URLQueryItem(name: "response_mode", value: "form_post"))
-      queryItems.append(URLQueryItem(name: "scope", value: "name email"))
-    case .google:
-      queryItems.append(URLQueryItem(name: "scope", value: "openid email profile"))
-    case .github:
-      queryItems.append(URLQueryItem(name: "scope", value: "read:user user:email"))
-    }
-
-    components.queryItems = queryItems
     return components.url!
   }
 
