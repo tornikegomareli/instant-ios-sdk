@@ -4,7 +4,7 @@ import Combine
 /// Main InstantDB client
 @MainActor
 public final class InstantClient: ObservableObject {
-  private let appID: String
+  public let appID: String
   private let baseURL: String
   private let connection: WebSocketConnection
   private var cancellables = Set<AnyCancellable>()
