@@ -220,9 +220,13 @@ struct UnauthenticatedView: View {
           throw InstantError.invalidMessage
         }
 
-        let oauth = InstantOAuth(appID: db.appID)
-        let code = try await oauth.startOAuth(provider: .apple, presentationAnchor: window)
-        try await authManager.signInWithOAuth(code: code)
+        let appleSignIn = SignInWithApple()
+        let (idToken, nonce) = try await appleSignIn.signIn(presentationAnchor: window)
+        try await authManager.signInWithIdToken(
+          clientName: "apple",
+          idToken: idToken,
+          nonce: nonce
+        )
         await MainActor.run {
           isLoading = false
         }
@@ -241,18 +245,17 @@ struct UnauthenticatedView: View {
 
     Task {
       do {
-        guard let window = UIApplication.shared.connectedScenes
-          .compactMap({ $0 as? UIWindowScene })
-          .first?.windows.first else {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootViewController = windowScene.windows.first?.rootViewController else {
           throw InstantError.invalidMessage
         }
 
-        let oauth = InstantOAuth(appID: db.appID)
-        let code = try await oauth.startOAuth(
-          provider: .google,
-          presentationAnchor: window
+        let googleSignIn = SignInWithGoogle(clientID: "855344946109-q2lc0rf5f9nttpqvhf9jon0sg5d7h44h.apps.googleusercontent.com")
+        let idToken = try await googleSignIn.signIn(presentingViewController: rootViewController)
+        try await authManager.signInWithIdToken(
+          clientName: "google-ios",
+          idToken: idToken
         )
-        try await authManager.signInWithOAuth(code: code)
         await MainActor.run {
           isLoading = false
         }
@@ -279,7 +282,7 @@ struct UnauthenticatedView: View {
 
         let oauth = InstantOAuth(appID: db.appID)
         let code = try await oauth.startOAuth(
-          provider: .github,
+          provider: .google(clientName: "google-ios"),
           presentationAnchor: window
         )
         try await authManager.signInWithOAuth(code: code)

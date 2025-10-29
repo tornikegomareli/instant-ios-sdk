@@ -1,5 +1,6 @@
 import SwiftUI
 import InstantDB
+import GoogleSignIn
 
 @main
 struct instantdb_exampleApp: App {
@@ -19,6 +20,9 @@ struct instantdb_exampleApp: App {
           }
       }
       .instantClient(db)
+      .onOpenURL { url in
+        GIDSignIn.sharedInstance.handle(url)
+      }
     }
   }
 }
