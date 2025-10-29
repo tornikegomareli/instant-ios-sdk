@@ -19,7 +19,7 @@ struct instantdb_exampleApp: App {
             Label("Connection", systemImage: "network")
           }
 
-        AuthDemoView()
+        AuthExamplesView()
           .tabItem {
             Label("Auth", systemImage: "person.circle")
           }
