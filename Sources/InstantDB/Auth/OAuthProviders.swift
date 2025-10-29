@@ -7,6 +7,7 @@ public enum OAuthProvider {
   case google(clientName: String = "google-ios")
   case github(clientName: String = "github-ios")
   case linkedin(clientName: String = "linkedin-ios")
+  case clerk(clientName: String = "clerk")
 
   var clientName: String {
     switch self {
@@ -17,6 +18,8 @@ public enum OAuthProvider {
     case .github(let clientName):
       return clientName
     case .linkedin(let clientName):
+      return clientName
+    case .clerk(let clientName):
       return clientName
     }
   }
