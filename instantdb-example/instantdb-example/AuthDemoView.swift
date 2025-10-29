@@ -138,6 +138,13 @@ struct UnauthenticatedView: View {
         }
         .buttonStyle(.bordered)
         .disabled(isLoading)
+
+        Button(action: signInWithLinkedIn) {
+          Label("Sign in with LinkedIn", systemImage: "briefcase.fill")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isLoading)
       }
 
       Divider()
@@ -282,7 +289,37 @@ struct UnauthenticatedView: View {
 
         let oauth = InstantOAuth(appID: db.appID)
         let code = try await oauth.startOAuth(
-          provider: .google(clientName: "google-ios"),
+          provider: .github(clientName: "github-ios"),
+          presentationAnchor: window
+        )
+        try await authManager.signInWithOAuth(code: code)
+        await MainActor.run {
+          isLoading = false
+        }
+      } catch {
+        await MainActor.run {
+          errorMessage = error.localizedDescription
+          isLoading = false
+        }
+      }
+    }
+  }
+
+  private func signInWithLinkedIn() {
+    isLoading = true
+    errorMessage = nil
+
+    Task {
+      do {
+        guard let window = UIApplication.shared.connectedScenes
+          .compactMap({ $0 as? UIWindowScene })
+          .first?.windows.first else {
+          throw InstantError.invalidMessage
+        }
+
+        let oauth = InstantOAuth(appID: db.appID)
+        let code = try await oauth.startOAuth(
+          provider: .linkedin(clientName: "linkedin-ios"),
           presentationAnchor: window
         )
         try await authManager.signInWithOAuth(code: code)
