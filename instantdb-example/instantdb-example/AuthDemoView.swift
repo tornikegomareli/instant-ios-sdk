@@ -60,6 +60,7 @@ struct AuthDemoView: View {
 
 struct UnauthenticatedView: View {
   @EnvironmentObject var authManager: AuthManager
+  @EnvironmentObject var db: InstantClient
   @State private var email = ""
   @State private var code = ""
   @State private var isLoading = false
@@ -107,6 +108,36 @@ struct UnauthenticatedView: View {
             .font(.caption)
             .foregroundStyle(.red)
         }
+      }
+
+      Divider()
+
+      Text("Or sign in with")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+      VStack(spacing: 12) {
+        Button(action: signInWithApple) {
+          Label("Sign in with Apple", systemImage: "applelogo")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.black)
+        .disabled(isLoading)
+
+        Button(action: signInWithGoogle) {
+          Label("Sign in with Google", systemImage: "g.circle.fill")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isLoading)
+
+        Button(action: signInWithGitHub) {
+          Label("Sign in with GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isLoading)
       }
 
       Divider()
@@ -165,6 +196,93 @@ struct UnauthenticatedView: View {
     Task {
       do {
         try await authManager.signInAsGuest()
+        await MainActor.run {
+          isLoading = false
+        }
+      } catch {
+        await MainActor.run {
+          errorMessage = error.localizedDescription
+          isLoading = false
+        }
+      }
+    }
+  }
+
+  private func signInWithApple() {
+    isLoading = true
+    errorMessage = nil
+
+    Task {
+      do {
+        guard let window = UIApplication.shared.connectedScenes
+          .compactMap({ $0 as? UIWindowScene })
+          .first?.windows.first else {
+          throw InstantError.invalidMessage
+        }
+
+        let oauth = InstantOAuth(appID: db.appID)
+        let code = try await oauth.startOAuth(provider: .apple, presentationAnchor: window)
+        try await authManager.signInWithOAuth(code: code)
+        await MainActor.run {
+          isLoading = false
+        }
+      } catch {
+        await MainActor.run {
+          errorMessage = error.localizedDescription
+          isLoading = false
+        }
+      }
+    }
+  }
+
+  private func signInWithGoogle() {
+    isLoading = true
+    errorMessage = nil
+
+    Task {
+      do {
+        guard let window = UIApplication.shared.connectedScenes
+          .compactMap({ $0 as? UIWindowScene })
+          .first?.windows.first else {
+          throw InstantError.invalidMessage
+        }
+
+        let oauth = InstantOAuth(appID: db.appID)
+        let code = try await oauth.startOAuth(
+          provider: .google,
+          presentationAnchor: window
+        )
+        try await authManager.signInWithOAuth(code: code)
+        await MainActor.run {
+          isLoading = false
+        }
+      } catch {
+        await MainActor.run {
+          errorMessage = error.localizedDescription
+          isLoading = false
+        }
+      }
+    }
+  }
+
+  private func signInWithGitHub() {
+    isLoading = true
+    errorMessage = nil
+
+    Task {
+      do {
+        guard let window = UIApplication.shared.connectedScenes
+          .compactMap({ $0 as? UIWindowScene })
+          .first?.windows.first else {
+          throw InstantError.invalidMessage
+        }
+
+        let oauth = InstantOAuth(appID: db.appID)
+        let code = try await oauth.startOAuth(
+          provider: .github,
+          presentationAnchor: window
+        )
+        try await authManager.signInWithOAuth(code: code)
         await MainActor.run {
           isLoading = false
         }
