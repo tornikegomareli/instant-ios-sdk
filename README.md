@@ -1,6 +1,6 @@
 # InstantDB iOS SDK (unofficial)
 
-> ⚠️ **Early Development Warning**: This SDK is in very early development (v0.0.1)
+> ⚠️ **Early Development Warning**: This SDK is in very early development (v0.0.2)
 
 A Swift SDK for [InstantDB](https://instantdb.com) - build real-time applications
 
