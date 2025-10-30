@@ -7,7 +7,11 @@ DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 
+# API Keys and Secrets
+instantdb-example/instantdb-example/Config/Config.swift
+
 # Documentation helpers
+CLAUDE.md
 ARCHITECTURE.md
 DEVELOPMENT.md
 INSTANTDB_PROTOCOL.md
