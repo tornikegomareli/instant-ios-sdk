@@ -23,6 +23,7 @@
 		E6B9995D2EB40AE1006BF406 /* Exceptions for "instantdb-example" folder in "instantdb-example" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Config/Config.example.swift,
 				Info.plist,
 			);
 			target = E6637CE42EA845F000EE0ECD /* instantdb-example */;
