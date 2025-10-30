@@ -32,9 +32,10 @@ struct GoogleSignInExample: View {
 
   private var headerView: some View {
     VStack(spacing: 12) {
-      Image(systemName: "g.circle.fill")
-        .font(.system(size: 60))
-        .foregroundStyle(.blue)
+      Image("googlesignin")
+        .resizable()
+        .scaledToFit()
+        .frame(width: 60, height: 60)
 
       Text("Sign in with Google")
         .font(.title2)
@@ -57,13 +58,11 @@ struct GoogleSignInExample: View {
   }
 
   private var signInButton: some View {
-    Button(action: signInWithGoogle) {
-      Label("Sign in with Google", systemImage: "g.circle.fill")
-        .frame(maxWidth: .infinity)
-        .padding()
-    }
-    .buttonStyle(.borderedProminent)
-    .disabled(isLoading)
+    SocialSignInButton(
+      provider: .google,
+      action: signInWithGoogle,
+      isLoading: isLoading
+    )
   }
 
   private var codeExample: some View {
@@ -75,7 +74,7 @@ struct GoogleSignInExample: View {
       ScrollView {
         Text("""
         let googleSignIn = SignInWithGoogle(
-          clientID: "your-client-id.apps.googleusercontent.com"
+          clientID: AppConfig.googleClientID
         )
 
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
@@ -111,7 +110,7 @@ struct GoogleSignInExample: View {
           throw InstantError.invalidMessage
         }
 
-        let googleSignIn = SignInWithGoogle(clientID: "855344946109-q2lc0rf5f9nttpqvhf9jon0sg5d7h44h.apps.googleusercontent.com")
+        let googleSignIn = SignInWithGoogle(clientID: AppConfig.googleClientID)
         let idToken = try await googleSignIn.signIn(presentingViewController: rootViewController)
         try await authManager.signInWithIdToken(
           clientName: "google-ios",

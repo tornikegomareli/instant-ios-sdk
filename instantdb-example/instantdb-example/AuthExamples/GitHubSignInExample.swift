@@ -32,9 +32,10 @@ struct GitHubSignInExample: View {
 
   private var headerView: some View {
     VStack(spacing: 12) {
-      Image(systemName: "chevron.left.forwardslash.chevron.right")
-        .font(.system(size: 60))
-        .foregroundStyle(.black)
+      Image("githublogo")
+        .resizable()
+        .scaledToFit()
+        .frame(width: 60, height: 60)
 
       Text("Sign in with GitHub")
         .font(.title2)
@@ -57,14 +58,11 @@ struct GitHubSignInExample: View {
   }
 
   private var signInButton: some View {
-    Button(action: signInWithGitHub) {
-      Label("Sign in with GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
-        .frame(maxWidth: .infinity)
-        .padding()
-    }
-    .buttonStyle(.borderedProminent)
-    .tint(.black)
-    .disabled(isLoading)
+    SocialSignInButton(
+      provider: .github,
+      action: signInWithGitHub,
+      isLoading: isLoading
+    )
   }
 
   private var codeExample: some View {

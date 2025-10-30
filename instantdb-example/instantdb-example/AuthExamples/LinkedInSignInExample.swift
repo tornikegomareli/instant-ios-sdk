@@ -32,9 +32,10 @@ struct LinkedInSignInExample: View {
 
   private var headerView: some View {
     VStack(spacing: 12) {
-      Image(systemName: "briefcase.fill")
-        .font(.system(size: 60))
-        .foregroundStyle(.blue)
+      Image("linkedinlogo")
+        .resizable()
+        .scaledToFit()
+        .frame(width: 60, height: 60)
 
       Text("Sign in with LinkedIn")
         .font(.title2)
@@ -57,13 +58,11 @@ struct LinkedInSignInExample: View {
   }
 
   private var signInButton: some View {
-    Button(action: signInWithLinkedIn) {
-      Label("Sign in with LinkedIn", systemImage: "briefcase.fill")
-        .frame(maxWidth: .infinity)
-        .padding()
-    }
-    .buttonStyle(.borderedProminent)
-    .disabled(isLoading)
+    SocialSignInButton(
+      provider: .linkedin,
+      action: signInWithLinkedIn,
+      isLoading: isLoading
+    )
   }
 
   private var codeExample: some View {

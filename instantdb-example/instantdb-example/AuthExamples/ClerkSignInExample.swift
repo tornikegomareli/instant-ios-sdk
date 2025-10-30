@@ -97,7 +97,7 @@ struct ClerkSignInExample: View {
         // Step 1: Configure Clerk in app init
         init() {
           Clerk.shared.configure(
-            publishableKey: "pk_test_..."
+            publishableKey: AppConfig.clerkPublishableKey
           )
         }
 

@@ -79,8 +79,7 @@ struct AuthExamplesView: View {
           exampleRow(
             title: "Sign in with Google",
             description: "Google Sign-In SDK",
-            icon: "g.circle.fill",
-            color: .blue
+            imageName: "googlesignin"
           )
         }
 
@@ -90,8 +89,7 @@ struct AuthExamplesView: View {
           exampleRow(
             title: "Sign in with GitHub",
             description: "OAuth web flow",
-            icon: "chevron.left.forwardslash.chevron.right",
-            color: .black
+            imageName: "githublogo"
           )
         }
 
@@ -99,8 +97,7 @@ struct AuthExamplesView: View {
           exampleRow(
             title: "Sign in with LinkedIn",
             description: "OAuth web flow",
-            icon: "briefcase.fill",
-            color: .blue
+            imageName: "linkedinlogo"
           )
         }
 
@@ -140,14 +137,23 @@ struct AuthExamplesView: View {
   private func exampleRow(
     title: String,
     description: String,
-    icon: String,
-    color: Color
+    icon: String? = nil,
+    imageName: String? = nil,
+    color: Color = .primary
   ) -> some View {
     HStack(spacing: 16) {
-      Image(systemName: icon)
-        .font(.title2)
-        .foregroundStyle(color)
-        .frame(width: 40)
+      Group {
+        if let imageName = imageName {
+          Image(imageName)
+            .resizable()
+            .scaledToFit()
+        } else if let icon = icon {
+          Image(systemName: icon)
+            .font(.title2)
+            .foregroundStyle(color)
+        }
+      }
+      .frame(width: 40, height: 40)
 
       VStack(alignment: .leading, spacing: 4) {
         Text(title)
