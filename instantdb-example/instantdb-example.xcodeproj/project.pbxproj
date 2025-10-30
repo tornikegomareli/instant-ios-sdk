@@ -20,7 +20,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		E6E505F52EB2B97800F37F34 /* Exceptions for "instantdb-example" folder in "instantdb-example" target */ = {
+		E6B9995D2EB40AE1006BF406 /* Exceptions for "instantdb-example" folder in "instantdb-example" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -33,7 +33,7 @@
 		E6637CE72EA845F000EE0ECD /* instantdb-example */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				E6E505F52EB2B97800F37F34 /* Exceptions for "instantdb-example" folder in "instantdb-example" target */,
+				E6B9995D2EB40AE1006BF406 /* Exceptions for "instantdb-example" folder in "instantdb-example" target */,
 			);
 			path = "instantdb-example";
 			sourceTree = "<group>";

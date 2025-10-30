@@ -5,10 +5,10 @@ import Clerk
 
 @main
 struct instantdb_exampleApp: App {
-  let db = InstantClient(appID: "a8a567cc-34a7-41b4-8802-d81186ad7014")
+  let db = InstantClient(appID: AppConfig.instantAppID)
 
   init() {
-    Clerk.shared.configure(publishableKey: "pk_test_cHJpbWFyeS1jaGltcC02My5jbGVyay5hY2NvdW50cy5kZXYk")
+    Clerk.shared.configure(publishableKey: AppConfig.clerkPublishableKey)
   }
 
   var body: some Scene {
