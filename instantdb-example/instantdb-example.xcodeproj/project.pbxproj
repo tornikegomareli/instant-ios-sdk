@@ -10,15 +10,32 @@
 		E6637CF52EA8460300EE0ECD /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E6637CF42EA8460300EE0ECD /* InstantDB */; };
 		E677AD992EAED5C30067ED59 /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E677AD982EAED5C30067ED59 /* InstantDB */; };
 		E6E3FF652EAED511003DBAD3 /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E6E3FF642EAED511003DBAD3 /* InstantDB */; };
+		E6E505F02EB2B5F300F37F34 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = E6E505EF2EB2B5F300F37F34 /* GoogleSignIn */; };
+		E6E505F22EB2B5F300F37F34 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = E6E505F12EB2B5F300F37F34 /* GoogleSignInSwift */; };
+		E6E505F82EB2C60C00F37F34 /* Clerk in Frameworks */ = {isa = PBXBuildFile; productRef = E6E505F72EB2C60C00F37F34 /* Clerk */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		E6637CE52EA845F000EE0ECD /* instantdb-example.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "instantdb-example.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		E6B9995D2EB40AE1006BF406 /* Exceptions for "instantdb-example" folder in "instantdb-example" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Config/Config.example.swift,
+				Info.plist,
+			);
+			target = E6637CE42EA845F000EE0ECD /* instantdb-example */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E6637CE72EA845F000EE0ECD /* instantdb-example */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E6B9995D2EB40AE1006BF406 /* Exceptions for "instantdb-example" folder in "instantdb-example" target */,
+			);
 			path = "instantdb-example";
 			sourceTree = "<group>";
 		};
@@ -29,7 +46,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E6E505F82EB2C60C00F37F34 /* Clerk in Frameworks */,
+				E6E505F22EB2B5F300F37F34 /* GoogleSignInSwift in Frameworks */,
 				E677AD992EAED5C30067ED59 /* InstantDB in Frameworks */,
+				E6E505F02EB2B5F300F37F34 /* GoogleSignIn in Frameworks */,
 				E6E3FF652EAED511003DBAD3 /* InstantDB in Frameworks */,
 				E6637CF52EA8460300EE0ECD /* InstantDB in Frameworks */,
 			);
@@ -77,6 +97,9 @@
 				E6637CF42EA8460300EE0ECD /* InstantDB */,
 				E6E3FF642EAED511003DBAD3 /* InstantDB */,
 				E677AD982EAED5C30067ED59 /* InstantDB */,
+				E6E505EF2EB2B5F300F37F34 /* GoogleSignIn */,
+				E6E505F12EB2B5F300F37F34 /* GoogleSignInSwift */,
+				E6E505F72EB2C60C00F37F34 /* Clerk */,
 			);
 			productName = "instantdb-example";
 			productReference = E6637CE52EA845F000EE0ECD /* instantdb-example.app */;
@@ -108,6 +131,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				E677AD972EAED5C30067ED59 /* XCLocalSwiftPackageReference "../../instant-ios-sdk" */,
+				E6E505EE2EB2B5F300F37F34 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				E6E505F62EB2C60C00F37F34 /* XCRemoteSwiftPackageReference "clerk-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E6637CE62EA845F000EE0ECD /* Products */;
@@ -266,11 +291,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "instantdb-example/instantdb-example.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6SR4JWJD54;
+				DEVELOPMENT_TEAM = 539293JFA3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "instantdb-example/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -298,11 +325,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "instantdb-example/instantdb-example.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6SR4JWJD54;
+				DEVELOPMENT_TEAM = 539293JFA3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "instantdb-example/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -355,6 +384,25 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		E6E505EE2EB2B5F300F37F34 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
+		E6E505F62EB2C60C00F37F34 /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.69.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		E6637CF42EA8460300EE0ECD /* InstantDB */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -367,6 +415,21 @@
 		E6E3FF642EAED511003DBAD3 /* InstantDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = InstantDB;
+		};
+		E6E505EF2EB2B5F300F37F34 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E6E505EE2EB2B5F300F37F34 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		E6E505F12EB2B5F300F37F34 /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E6E505EE2EB2B5F300F37F34 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
+		};
+		E6E505F72EB2C60C00F37F34 /* Clerk */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E6E505F62EB2C60C00F37F34 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = Clerk;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

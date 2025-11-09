@@ -1,9 +1,15 @@
 import SwiftUI
 import InstantDB
+import GoogleSignIn
+import Clerk
 
 @main
 struct instantdb_exampleApp: App {
-  let db = InstantClient(appID: "a8a567cc-34a7-41b4-8802-d81186ad7014")
+  let db = InstantClient(appID: AppConfig.instantAppID)
+
+  init() {
+    Clerk.shared.configure(publishableKey: AppConfig.clerkPublishableKey)
+  }
 
   var body: some Scene {
     WindowGroup {
@@ -13,12 +19,18 @@ struct instantdb_exampleApp: App {
             Label("Connection", systemImage: "network")
           }
 
-        AuthDemoView()
+        AuthExamplesView()
           .tabItem {
             Label("Auth", systemImage: "person.circle")
           }
       }
       .instantClient(db)
+      .onOpenURL { url in
+        GIDSignIn.sharedInstance.handle(url)
+      }
+      .task {
+        try? await Clerk.shared.load()
+      }
     }
   }
 }

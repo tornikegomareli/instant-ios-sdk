@@ -15,10 +15,15 @@ let package = Package(
             targets: ["InstantDB"]
         ),
     ],
+    dependencies: [
+        .package(url: "https://github.com/google/GoogleSignIn-iOS", from: "9.0.0")
+    ],
     targets: [
         .target(
             name: "InstantDB",
-            dependencies: [],
+            dependencies: [
+                .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS")
+            ],
             path: "Sources/InstantDB"
         ),
         .testTarget(

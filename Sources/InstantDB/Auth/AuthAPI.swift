@@ -104,6 +104,88 @@ public final class AuthAPI {
     return try JSONDecoder().decode(AuthResponse.self, from: data)
   }
 
+  /// Exchange OAuth authorization code for user token
+  public func exchangeCodeForToken(
+    code: String,
+    codeVerifier: String? = nil,
+    refreshToken: String? = nil
+  ) async throws -> AuthResponse {
+    let url = URL(string: "\(baseURL)/runtime/oauth/token")!
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+    var body: [String: Any] = [
+      "app_id": appID,
+      "code": code
+    ]
+
+    if let codeVerifier = codeVerifier {
+      body["code_verifier"] = codeVerifier
+    }
+
+    if let refreshToken = refreshToken {
+      body["refresh_token"] = refreshToken
+    }
+
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw InstantError.connectionFailed(URLError(.badServerResponse))
+    }
+
+    guard (200...299).contains(httpResponse.statusCode) else {
+      try handleErrorResponse(data, statusCode: httpResponse.statusCode)
+    }
+
+    return try JSONDecoder().decode(AuthResponse.self, from: data)
+  }
+
+  /// Sign in with OAuth ID token (for native sign-in flows)
+  public func signInWithIdToken(
+    clientName: String,
+    idToken: String,
+    nonce: String? = nil,
+    refreshToken: String? = nil
+  ) async throws -> AuthResponse {
+    let url = URL(string: "\(baseURL)/runtime/oauth/id_token")!
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+    var body: [String: Any] = [
+      "app_id": appID,
+      "client_name": clientName,
+      "id_token": idToken
+    ]
+
+    if let nonce = nonce {
+      body["nonce"] = nonce
+    }
+
+    if let refreshToken = refreshToken {
+      body["refresh_token"] = refreshToken
+    }
+
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw InstantError.connectionFailed(URLError(.badServerResponse))
+    }
+
+    guard (200...299).contains(httpResponse.statusCode) else {
+      try handleErrorResponse(data, statusCode: httpResponse.statusCode)
+    }
+
+    return try JSONDecoder().decode(AuthResponse.self, from: data)
+  }
+
   /// Sign out
   public func signOut(refreshToken: String) async throws {
     let url = URL(string: "\(baseURL)/runtime/signout")!

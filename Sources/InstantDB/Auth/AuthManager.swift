@@ -128,6 +128,37 @@ public final class AuthManager: ObservableObject {
     return response.user
   }
 
+  /// Sign in with OAuth code
+  @discardableResult
+  public func signInWithOAuth(code: String, codeVerifier: String? = nil) async throws -> User {
+    let currentToken = refreshToken
+    let response = try await authAPI.exchangeCodeForToken(
+      code: code,
+      codeVerifier: codeVerifier,
+      refreshToken: currentToken
+    )
+    try saveAuth(response.user)
+    return response.user
+  }
+
+  /// Sign in with OAuth ID token (for native sign-in flows like Sign in with Apple)
+  @discardableResult
+  public func signInWithIdToken(
+    clientName: String,
+    idToken: String,
+    nonce: String? = nil
+  ) async throws -> User {
+    let currentToken = refreshToken
+    let response = try await authAPI.signInWithIdToken(
+      clientName: clientName,
+      idToken: idToken,
+      nonce: nonce,
+      refreshToken: currentToken
+    )
+    try saveAuth(response.user)
+    return response.user
+  }
+
   /// Sign out current user
   public func signOut() async throws {
     guard let token = refreshToken else {
