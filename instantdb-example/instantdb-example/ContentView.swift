@@ -104,8 +104,8 @@ struct ContentView: View {
         .tint(.red)
       }
       
-      Button(action: { viewModel.subscribeToQuery() }) {
-        Label("Subscribe to Query", systemImage: "arrow.down.circle.fill")
+      NavigationLink(destination: QueryTestView()) {
+        Label("Test Queries", systemImage: "arrow.down.circle.fill")
           .frame(maxWidth: .infinity)
       }
       .buttonStyle(.borderedProminent)

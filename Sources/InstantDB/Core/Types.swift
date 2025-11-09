@@ -64,8 +64,9 @@ public enum InstantError: Error, LocalizedError {
   case notAuthenticated
   case invalidAppID
   case invalidMessage
+  case invalidQuery
   case connectionFailed(Error)
-  case serverError(String, hint: [String: Any]?)
+  case serverError(String, hint: [String: Any]? = nil)
   case timeout
   case decodingError(Error)
   case encodingError(Error)
@@ -80,6 +81,8 @@ public enum InstantError: Error, LocalizedError {
       return "Invalid app ID format"
     case .invalidMessage:
       return "Invalid message format"
+    case .invalidQuery:
+      return "Invalid query format"
     case .connectionFailed(let error):
       return "Connection failed: \(error.localizedDescription)"
     case .serverError(let message, _):

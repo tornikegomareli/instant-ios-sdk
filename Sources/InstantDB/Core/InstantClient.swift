@@ -26,7 +26,10 @@ public final class InstantClient: ObservableObject {
   
   /// Auth manager
   public let authManager: AuthManager
-  
+
+  /// Query manager
+  private let queryManager = QueryManager()
+
   private var messageHandlers: [String: (ServerMessage) -> Void] = [:]
   
   /// Initialize InstantDB client
@@ -182,7 +185,22 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleAddQueryOk(_ message: ServerMessage) {
-    print("[InstantDB] Query subscription confirmed")
+    guard let result = message.data["result"]?.value as? [String: Any] else {
+      print("[InstantDB] Add-query-ok missing result")
+      return
+    }
+
+    let pageInfo = message.data["page-info"]?.value as? [String: Any]
+
+    Task { @MainActor in
+      self.queryManager.handleQueryResult(
+        eventId: message.clientEventId,
+        result: result,
+        pageInfo: pageInfo
+      )
+    }
+
+    print("[InstantDB] ✓ Query result delivered")
   }
   
   private func handleAddQueryExists(_ message: ServerMessage) {
@@ -199,16 +217,33 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleRefreshOk(_ message: ServerMessage) {
-    print("[InstantDB] Data refreshed")
+    guard let computations = message.data["computations"]?.value as? [[String: Any]] else {
+      print("[InstantDB] Refresh-ok missing computations")
+      return
+    }
+
+    Task { @MainActor in
+      self.queryManager.handleRefresh(computations: computations)
+    }
+
+    print("[InstantDB] ✓ Real-time update delivered (\(computations.count) queries)")
   }
   
   private func handleError(_ message: ServerMessage) {
     let errorMsg = message.data["message"]?.value as? String ?? "Unknown error"
     let hint = message.data["hint"]?.value as? [String: Any]
-    
+
     print("[InstantDB] ✗ Server error: \(errorMsg)")
     if let hint = hint {
       print("[InstantDB]   Hint: \(hint)")
+    }
+
+    // If this error is for a query, notify the query manager
+    if let eventId = message.clientEventId {
+      let error = InstantError.serverError(errorMsg)
+      Task { @MainActor in
+        self.queryManager.handleQueryError(eventId: eventId, error: error)
+      }
     }
   }
 }
@@ -216,20 +251,61 @@ public final class InstantClient: ObservableObject {
 // MARK: - Query API
 
 extension InstantClient {
-  
-  /// Subscribe to a query
-  /// - Parameter query: InstaQL query dictionary
-  public func subscribeQuery(_ query: [String: Any]) throws {
+
+  /// Subscribe to a query with a callback for results
+  /// - Parameters:
+  ///   - query: InstaQL query dictionary (e.g., ["goals": [:]])
+  ///   - callback: Called when query results arrive or update
+  /// - Returns: Unsubscribe function - call this to stop receiving updates
+  ///
+  /// Example:
+  /// ```swift
+  /// let unsubscribe = try db.subscribeQuery(["goals": [:]]) { result in
+  ///   if let error = result.error {
+  ///     print("Query failed: \(error)")
+  ///   } else if let goals = result["goals"] {
+  ///     print("Got \(goals.count) goals")
+  ///   }
+  /// }
+  ///
+  /// // Later, to unsubscribe:
+  /// unsubscribe()
+  /// ```
+  @discardableResult
+  public func subscribeQuery(
+    _ query: [String: Any],
+    callback: @escaping QueryCallback
+  ) throws -> (() -> Void) {
     guard connectionState == .authenticated else {
       throw InstantError.notAuthenticated
     }
-    
+
+    // Register subscription with manager
+    let unsubscribe = queryManager.subscribe(query: query, callback: callback)
+
+    // Get the subscription to send to server
+    let hash = hashQuery(query)
+    guard let subscription = queryManager.getSubscription(hash: hash) else {
+      throw InstantError.invalidQuery
+    }
+
+    // Send to server
     let message = AddQueryMessage(
-      clientEventId: UUID().uuidString,
+      clientEventId: subscription.eventId,
       query: query
     )
-    
+
     try connection.send(message)
+
+    return unsubscribe
+  }
+
+  private func hashQuery(_ query: [String: Any]) -> String {
+    guard let data = try? JSONSerialization.data(withJSONObject: query),
+          let string = String(data: data, encoding: .utf8) else {
+      return UUID().uuidString
+    }
+    return string.hash.description
   }
 }
 
