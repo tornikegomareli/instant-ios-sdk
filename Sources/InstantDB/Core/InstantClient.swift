@@ -30,6 +30,9 @@ public final class InstantClient: ObservableObject {
   /// Query manager
   private let queryManager = QueryManager()
 
+  /// Transaction builder for constructing database mutations
+  public let tx = TransactionBuilder()
+
   private var messageHandlers: [String: (ServerMessage) -> Void] = [:]
   
   /// Initialize InstantDB client
@@ -63,17 +66,22 @@ public final class InstantClient: ObservableObject {
         self?.connectionState = state
       }
       .store(in: &cancellables)
-    
+
     connection.onMessage = { [weak self] message in
       self?.handleServerMessage(message)
     }
-    
+
     connection.onError = { [weak self] error in
       print("[InstantDB] Error: \(error.localizedDescription)")
     }
-    
+
     connection.onOpen = { [weak self] in
       self?.sendInitMessage()
+    }
+
+    // Set up query manager callback for removing queries
+    queryManager.onRemoveQuery = { [weak self] query in
+      self?.sendRemoveQuery(query)
     }
   }
   
@@ -81,23 +89,27 @@ public final class InstantClient: ObservableObject {
     messageHandlers["init-ok"] = { [weak self] message in
       self?.handleInitOk(message)
     }
-    
+
     messageHandlers["add-query-ok"] = { [weak self] message in
       self?.handleAddQueryOk(message)
     }
-    
+
     messageHandlers["add-query-exists"] = { [weak self] message in
       self?.handleAddQueryExists(message)
     }
-    
+
+    messageHandlers["remove-query-ok"] = { [weak self] message in
+      self?.handleRemoveQueryOk(message)
+    }
+
     messageHandlers["transact-ok"] = { [weak self] message in
       self?.handleTransactOk(message)
     }
-    
+
     messageHandlers["refresh-ok"] = { [weak self] message in
       self?.handleRefreshOk(message)
     }
-    
+
     messageHandlers["error"] = { [weak self] message in
       self?.handleError(message)
     }
@@ -123,11 +135,27 @@ public final class InstantClient: ObservableObject {
       appId: appID,
       refreshToken: authManager.refreshToken
     )
-    
+
     do {
       try connection.send(message)
     } catch {
       print("[InstantDB] Failed to send init message: \(error)")
+    }
+  }
+
+  private func sendRemoveQuery(_ query: [String: Any]) {
+    guard connectionState == .authenticated else { return }
+
+    let message = RemoveQueryMessage(
+      clientEventId: UUID().uuidString,
+      query: query
+    )
+
+    do {
+      try connection.send(message)
+      print("[InstantDB] → Sent remove-query")
+    } catch {
+      print("[InstantDB] Failed to send remove-query: \(error)")
     }
   }
   
@@ -185,18 +213,31 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleAddQueryOk(_ message: ServerMessage) {
-    guard let result = message.data["result"]?.value as? [String: Any] else {
-      print("[InstantDB] Add-query-ok missing result")
+    if let resultValue = message.data["result"]?.value,
+         let jsonData = try? JSONSerialization.data(withJSONObject: resultValue, options: .prettyPrinted),
+         let jsonString = String(data: jsonData, encoding: .utf8) {
+        print("[InstantDB] DEBUG add-query-ok full result:")
+        print(jsonString)
+      }
+    
+    // Parse result array
+    guard let resultArray = message.data["result"]?.value as? [[String: Any]] else {
+      print("[InstantDB] Add-query-ok missing result array")
       return
     }
 
-    let pageInfo = message.data["page-info"]?.value as? [String: Any]
+    // Process datalog-result into InstaQL format
+    let instaqlData = InstaQLProcessor.process(result: resultArray, attributes: attributes)
+
+    // Extract page-info if available
+    let pageInfo = resultArray.first?["data"] as? [String: Any]
+    let pageInfoData = pageInfo?["page-info"] as? [String: Any]
 
     Task { @MainActor in
       self.queryManager.handleQueryResult(
         eventId: message.clientEventId,
-        result: result,
-        pageInfo: pageInfo
+        result: instaqlData,
+        pageInfo: pageInfoData
       )
     }
 
@@ -204,15 +245,50 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleAddQueryExists(_ message: ServerMessage) {
-    print("[InstantDB] Query already exists")
+    print("[InstantDB] Query already exists, delivering current data")
+
+    // Debug: log the full message data
+    if let jsonData = try? JSONSerialization.data(withJSONObject: message.data.mapValues { $0.value }, options: .prettyPrinted),
+       let jsonString = String(data: jsonData, encoding: .utf8) {
+      print("[InstantDB] DEBUG add-query-exists message data:")
+      print(jsonString)
+    }
+
+    // Parse result array
+    guard let resultArray = message.data["result"]?.value as? [[String: Any]] else {
+      print("[InstantDB] Add-query-exists missing result array")
+      print("[InstantDB] Available keys: \(message.data.keys)")
+      return
+    }
+
+    // Process datalog-result into InstaQL format
+    let instaqlData = InstaQLProcessor.process(result: resultArray, attributes: attributes)
+
+    // Extract page-info if available
+    let pageInfo = resultArray.first?["data"] as? [String: Any]
+    let pageInfoData = pageInfo?["page-info"] as? [String: Any]
+
+    Task { @MainActor in
+      self.queryManager.handleQueryResult(
+        eventId: message.clientEventId,
+        result: instaqlData,
+        pageInfo: pageInfoData
+      )
+    }
+
+    print("[InstantDB] ✓ Query result delivered (existing query)")
   }
   
+  private func handleRemoveQueryOk(_ message: ServerMessage) {
+    print("[InstantDB] ✓ Query removed from server")
+  }
+
   private func handleTransactOk(_ message: ServerMessage) {
-    guard let txId = message.data["tx-id"]?.value as? String else {
+    guard let txId = message.data["tx-id"]?.value as? Int else {
       print("[InstantDB] Transact-ok missing tx-id")
       return
     }
-    
+
     print("[InstantDB] ✓ Transaction confirmed: \(txId)")
   }
   
@@ -223,7 +299,7 @@ public final class InstantClient: ObservableObject {
     }
 
     Task { @MainActor in
-      self.queryManager.handleRefresh(computations: computations)
+      self.queryManager.handleRefresh(computations: computations, attributes: self.attributes)
     }
 
     print("[InstantDB] ✓ Real-time update delivered (\(computations.count) queries)")
@@ -280,7 +356,6 @@ extension InstantClient {
       throw InstantError.notAuthenticated
     }
 
-    // Register subscription with manager
     let unsubscribe = queryManager.subscribe(query: query, callback: callback)
 
     // Get the subscription to send to server
@@ -289,7 +364,6 @@ extension InstantClient {
       throw InstantError.invalidQuery
     }
 
-    // Send to server
     let message = AddQueryMessage(
       clientEventId: subscription.eventId,
       query: query
@@ -312,19 +386,51 @@ extension InstantClient {
 // MARK: - Transaction API
 
 extension InstantClient {
-  
+
+  /// Send a transaction to the server using transaction chunks
+  /// - Parameter chunks: Transaction chunks built using the tx builder
+  ///
+  /// Example:
+  /// ```swift
+  /// try db.transact([
+  ///   db.tx.goals[newId()].update(["title": "Get fit"]),
+  ///   db.tx.todos[todoId].link(["goals": goalId])
+  /// ])
+  /// ```
+  public func transact(_ chunks: [TransactionChunk]) throws {
+    // Transform high-level operations into tx-steps format
+    let (txSteps, newAttributes) = try TransactionTransformer.transform(chunks, attributes: attributes)
+
+    // Add new attributes to local schema (optimistically)
+    attributes.append(contentsOf: newAttributes)
+
+    try transact(txSteps)
+  }
+
+  /// Send a transaction to the server using transaction chunks
+  /// - Parameter chunk: A single transaction chunk
+  public func transact(_ chunk: TransactionChunk) throws {
+    try transact([chunk])
+  }
+
   /// Send a transaction to the server
   /// - Parameter txSteps: Array of transaction operations
   public func transact(_ txSteps: [[Any]]) throws {
     guard connectionState == .authenticated else {
       throw InstantError.notAuthenticated
     }
-    
+
+    // Debug: log tx-steps being sent
+    print("[InstantDB] Sending transaction with \(txSteps.count) steps:")
+    for (index, step) in txSteps.enumerated() {
+      print("[InstantDB]   Step \(index): \(step)")
+    }
+
     let message = TransactMessage(
       clientEventId: UUID().uuidString,
       txSteps: txSteps
     )
-    
+
     try connection.send(message)
   }
 }
