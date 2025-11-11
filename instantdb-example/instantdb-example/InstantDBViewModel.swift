@@ -18,7 +18,7 @@ class InstantDBViewModel: ObservableObject {
   private var isSetup = false
 
   init() {
-    addLog("✅ InstantDB ViewModel initialized")
+    addLog("[SUCCESS] InstantDB ViewModel initialized")
   }
 
   func setup(db: InstantClient, authManager: AuthManager) {
@@ -28,8 +28,8 @@ class InstantDBViewModel: ObservableObject {
     self.db = db
     self.authManager = authManager
     setupObservers()
-    addLog("✅ Connected to shared InstantClient")
-    addLog("🔐 Auth state: \(authManager.state)")
+    addLog("[SUCCESS] Connected to shared InstantClient")
+    addLog("[INFO] Auth state: \(authManager.state)")
   }
   
   private func setupObservers() {
@@ -39,7 +39,7 @@ class InstantDBViewModel: ObservableObject {
       .receive(on: DispatchQueue.main)
       .sink { [weak self] state in
         self?.connectionState = state
-        self?.addLog("🔌 Connection: \(state)")
+        self?.addLog("[INFO] Connection: \(state)")
       }
       .store(in: &cancellables)
 
@@ -48,9 +48,9 @@ class InstantDBViewModel: ObservableObject {
       .sink { [weak self] isAuth in
         self?.isAuthenticated = isAuth
         if isAuth {
-          self?.addLog("✅ Connection authenticated!")
+          self?.addLog("[SUCCESS] Connection authenticated!")
         } else {
-          self?.addLog("👤 Connection is guest/unauthenticated")
+          self?.addLog("[INFO] Connection is guest/unauthenticated")
         }
       }
       .store(in: &cancellables)
@@ -60,7 +60,7 @@ class InstantDBViewModel: ObservableObject {
       .sink { [weak self] sessionID in
         self?.sessionID = sessionID
         if let sessionID = sessionID {
-          self?.addLog("🔑 Session: \(sessionID.prefix(8))...")
+          self?.addLog("[INFO] Session: \(sessionID.prefix(8))...")
         }
       }
       .store(in: &cancellables)
@@ -70,7 +70,7 @@ class InstantDBViewModel: ObservableObject {
       .sink { [weak self] attrs in
         self?.attributesCount = attrs.count
         if !attrs.isEmpty {
-          self?.addLog("📋 Loaded \(attrs.count) attributes")
+          self?.addLog("[INFO] Loaded \(attrs.count) attributes")
         }
       }
       .store(in: &cancellables)
@@ -81,13 +81,13 @@ class InstantDBViewModel: ObservableObject {
         self?.authState = state
         switch state {
         case .loading:
-          self?.addLog("🔄 Auth: Loading...")
+          self?.addLog("[INFO] Auth: Loading...")
         case .unauthenticated:
-          self?.addLog("🚫 Auth: Not signed in")
+          self?.addLog("[INFO] Auth: Not signed in")
         case .guest(let user):
-          self?.addLog("👤 Auth: Guest user (id: \(user.id.prefix(8))...)")
+          self?.addLog("[INFO] Auth: Guest user (id: \(user.id.prefix(8))...)")
         case .authenticated(let user):
-          self?.addLog("✅ Auth: Signed in as \(user.email ?? "unknown")")
+          self?.addLog("[SUCCESS] Auth: Signed in as \(user.email ?? "unknown")")
         }
       }
       .store(in: &cancellables)
@@ -95,31 +95,31 @@ class InstantDBViewModel: ObservableObject {
   
   func connect() {
     guard let db = db else {
-      addLog("❌ DB not initialized")
+      addLog("[ERROR] DB not initialized")
       return
     }
-    addLog("🔌 Connecting to InstantDB...")
+    addLog("[INFO] Connecting to InstantDB...")
     db.connect()
   }
 
   func disconnect() {
     guard let db = db else {
-      addLog("❌ DB not initialized")
+      addLog("[ERROR] DB not initialized")
       return
     }
-    addLog("🔌 Disconnecting...")
+    addLog("[INFO] Disconnecting...")
     db.disconnect()
-    addLog("⚫️ Disconnected")
+    addLog("[INFO] Disconnected")
   }
 
   func subscribeToQuery() {
     guard let db = db else {
-      addLog("❌ DB not initialized")
+      addLog("[ERROR] DB not initialized")
       return
     }
 
     guard isAuthenticated else {
-      addLog("❌ Not authenticated")
+      addLog("[ERROR] Not authenticated")
       return
     }
 
@@ -130,18 +130,18 @@ class InstantDBViewModel: ObservableObject {
     do {
       _ = try db.subscribeQuery(query) { [weak self] result in
         if let error = result.error {
-          self?.addLog("❌ Query error: \(error.localizedDescription)")
+          self?.addLog("[ERROR] Query error: \(error.localizedDescription)")
         } else if result.isLoading {
-          self?.addLog("⏳ Query loading...")
+          self?.addLog("[INFO] Query loading...")
         } else if let users = result["users"] as? [[String: Any]] {
-          self?.addLog("✅ Received \(users.count) users")
+          self?.addLog("[SUCCESS] Received \(users.count) users")
         } else {
-          self?.addLog("✅ Query result: \(result.data)")
+          self?.addLog("[SUCCESS] Query result: \(result.data)")
         }
       }
-      addLog("📊 Query subscription sent")
+      addLog("[INFO] Query subscription sent")
     } catch {
-      addLog("❌ Failed to subscribe: \(error.localizedDescription)")
+      addLog("[ERROR] Failed to subscribe: \(error.localizedDescription)")
     }
   }
   
@@ -152,7 +152,7 @@ class InstantDBViewModel: ObservableObject {
   func copyLogs() {
     let logsText = logs.joined(separator: "\n")
     UIPasteboard.general.string = logsText
-    addLog("📋 Logs copied to clipboard")
+    addLog("[SUCCESS] Logs copied to clipboard")
   }
   
   private func addLog(_ message: String) {
