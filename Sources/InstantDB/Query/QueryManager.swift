@@ -10,6 +10,9 @@ final class QueryManager {
   /// Map event IDs to query hashes for lookup
   private var eventIdToHash: [String: String] = [:]
 
+  /// Callback for when a query should be removed from server
+  var onRemoveQuery: (([String: Any]) -> Void)?
+
   /// Subscribe to a query
   /// - Parameters:
   ///   - query: InstaQL query dictionary
@@ -69,11 +72,11 @@ final class QueryManager {
   }
 
   /// Handle refresh-ok response (real-time update)
-  func handleRefresh(computations: [[String: Any]]) {
+  func handleRefresh(computations: [[String: Any]], attributes: [Attribute]) {
     // Each computation has 'instaql-query' and 'instaql-result'
     for computation in computations {
       guard let query = computation["instaql-query"] as? [String: Any],
-            let result = computation["instaql-result"] as? [String: Any] else {
+            let resultArray = computation["instaql-result"] as? [[String: Any]] else {
         continue
       }
 
@@ -82,8 +85,14 @@ final class QueryManager {
         continue
       }
 
-      let pageInfo = result["page-info"] as? [String: Any]
-      let queryResult = QueryResult.success(data: result, pageInfo: pageInfo)
+      // Process datalog-result into InstaQL format
+      let instaqlData = InstaQLProcessor.process(result: resultArray, attributes: attributes)
+
+      // Extract page-info if available
+      let pageInfo = resultArray.first?["data"] as? [String: Any]
+      let pageInfoData = pageInfo?["page-info"] as? [String: Any]
+
+      let queryResult = QueryResult.success(data: instaqlData, pageInfo: pageInfoData)
       subscription.updateResult(queryResult)
       subscriptions[hash] = subscription
     }
@@ -116,10 +125,14 @@ final class QueryManager {
       return true
     }
 
-    // If no callbacks left, remove subscription
+    // If no callbacks left, remove subscription and notify server
     if subscription.callbacks.isEmpty {
+      let query = subscription.query
       subscriptions.removeValue(forKey: hash)
       eventIdToHash.removeValue(forKey: subscription.eventId)
+
+      // Notify InstantClient to send remove-query to server
+      onRemoveQuery?(query)
     } else {
       subscriptions[hash] = subscription
     }
