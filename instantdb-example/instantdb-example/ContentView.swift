@@ -27,9 +27,7 @@ struct ContentView: View {
 
           actionsView
 
-          Divider()
-
-          logsView
+          LogView(title: "Connection Logs", logs: $viewModel.logs, height: 200)
         }
         .padding()
         .padding(.bottom, 60)
@@ -41,7 +39,7 @@ struct ContentView: View {
       }
     }
   }
-  
+
   private var connectionStatusView: some View {
     VStack(spacing: 12) {
       Text(viewModel.statusEmoji)
@@ -104,61 +102,12 @@ struct ContentView: View {
         .tint(.red)
       }
       
-      NavigationLink(destination: QueryTestView()) {
-        Label("Test Queries", systemImage: "arrow.down.circle.fill")
+      NavigationLink(destination: UnifiedTestView()) {
+        Label("Simple Transaction, Query Test", systemImage: "flask.fill")
           .frame(maxWidth: .infinity)
       }
       .buttonStyle(.borderedProminent)
-      .disabled(!viewModel.isAuthenticated)
-    }
-  }
-  
-  private var logsView: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack {
-        Text("Logs")
-          .font(.headline)
-
-        Spacer()
-
-        Button(action: {
-          viewModel.copyLogs()
-        }) {
-          Label("Copy", systemImage: "doc.on.doc")
-            .font(.caption)
-        }
-        .buttonStyle(.bordered)
-
-        Button("Clear") {
-          viewModel.clearLogs()
-        }
-        .font(.caption)
-      }
-      
-      ScrollView {
-        ScrollViewReader { proxy in
-          VStack(alignment: .leading, spacing: 4) {
-            ForEach(viewModel.logs.indices, id: \.self) { index in
-              Text(viewModel.logs[index])
-                .font(.caption)
-                .fontDesign(.monospaced)
-                .id(index)
-            }
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .onChange(of: viewModel.logs.count) { _ in
-            if let lastIndex = viewModel.logs.indices.last {
-              withAnimation {
-                proxy.scrollTo(lastIndex, anchor: .bottom)
-              }
-            }
-          }
-        }
-      }
-      .frame(height: 200)
-      .padding(8)
-      .background(Color.black.opacity(0.05))
-      .cornerRadius(8)
+      .disabled(db.connectionState != .authenticated)
     }
   }
 }
