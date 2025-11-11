@@ -102,7 +102,7 @@ struct ContentView: View {
         .tint(.red)
       }
       
-      NavigationLink(destination: UnifiedTestView()) {
+      NavigationLink(destination: TransactionTestView()) {
         Label("Simple Transaction, Query Test", systemImage: "flask.fill")
           .frame(maxWidth: .infinity)
       }
