@@ -123,20 +123,16 @@ class InstantDBViewModel: ObservableObject {
       return
     }
 
-    let query: [String: Any] = [
-      "users": [:]
-    ]
-
     do {
-      _ = try db.subscribeQuery(query) { [weak self] result in
+      _ = try db.subscribe(
+        db.query(User.self)
+      ) { [weak self] result in
         if let error = result.error {
           self?.addLog("[ERROR] Query error: \(error.localizedDescription)")
         } else if result.isLoading {
           self?.addLog("[INFO] Query loading...")
-        } else if let users = result["users"] as? [[String: Any]] {
-          self?.addLog("[SUCCESS] Received \(users.count) users")
         } else {
-          self?.addLog("[SUCCESS] Query result: \(result.data)")
+          self?.addLog("[SUCCESS] Received \(result.data.count) users")
         }
       }
       addLog("[INFO] Query subscription sent")
