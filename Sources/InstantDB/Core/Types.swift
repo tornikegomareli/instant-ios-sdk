@@ -70,7 +70,7 @@ public enum InstantError: Error, LocalizedError {
   case timeout
   case decodingError(Error)
   case encodingError(Error)
-  
+
   public var errorDescription: String? {
     switch self {
     case .notConnected:
@@ -85,14 +85,28 @@ public enum InstantError: Error, LocalizedError {
       return "Invalid query format"
     case .connectionFailed(let error):
       return "Connection failed: \(error.localizedDescription)"
-    case .serverError(let message, _):
-      return "Server error: \(message)"
+    case .serverError(let message, let hint):
+      var errorText = message
+      if let hint = hint, !hint.isEmpty {
+        errorText += "\n\nHint: \(hint)"
+      }
+      errorText += "\n\nLearn more: https://www.instantdb.com/docs"
+      return errorText
     case .timeout:
       return "Request timed out"
     case .decodingError(let error):
       return "Failed to decode message: \(error.localizedDescription)"
     case .encodingError(let error):
       return "Failed to encode message: \(error.localizedDescription)"
+    }
+  }
+
+  public var recoverySuggestion: String? {
+    switch self {
+    case .serverError:
+      return "Check the InstantDB docs: https://www.instantdb.com/docs"
+    default:
+      return nil
     }
   }
 }
