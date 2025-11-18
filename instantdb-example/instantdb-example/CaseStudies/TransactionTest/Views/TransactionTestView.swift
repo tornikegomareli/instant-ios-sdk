@@ -30,7 +30,7 @@ struct TransactionTestView: View {
       get: { viewModel.editingGoalId.map { GoalEditIdentifier(id: $0) } },
       set: { viewModel.editingGoalId = $0?.id }
     )) { identifier in
-      if let goal = viewModel.goals.first(where: { $0["id"] as? String == identifier.id }) {
+      if let goal = viewModel.goals.first(where: { $0.id == identifier.id }) {
         EditGoalSheet(
           goal: goal,
           onSave: { title, difficulty in
@@ -111,12 +111,12 @@ struct GoalsListView: View {
           GoalCard(
             goal: viewModel.goals[index],
             onTap: {
-              viewModel.editingGoalId = viewModel.goals[index]["id"] as? String
+              //viewModel.editingGoalId = viewModel.goals[index]["id"] as? String
             },
             onDelete: {
-              if let goalId = viewModel.goals[index]["id"] as? String {
-                viewModel.deleteGoal(goalId: goalId)
-              }
+//              if let goalId = viewModel.goals[index]["id"] as? String {
+//                viewModel.deleteGoal(goalId: goalId)
+//              }
             }
           )
         }

@@ -3,7 +3,7 @@ import InstantDB
 
 @MainActor
 class TransactionTestViewModel: ObservableObject {
-  @Published var goals: [[String: Any]] = []
+  @Published var goals: [Goal] = []
   @Published var isLoading = false
   @Published var error: String?
   @Published var transactionLog: [String] = []
@@ -26,19 +26,16 @@ class TransactionTestViewModel: ObservableObject {
     guard let db = db else { return }
 
     do {
-      unsubscribe = try db.subscribeQuery(["goals": [:]]) { [weak self] result in
-        DispatchQueue.main.async {
-          self?.isLoading = result.isLoading
-          self?.error = result.error?.localizedDescription
+      unsubscribe = try db.subscribe(
+        db.query(Goal.self)
+      ) { [weak self] result in
+        guard let self else { return }
+        self.isLoading = result.isLoading
+        self.error = result.error?.localizedDescription
+        self.goals = result.data
 
-          if let goalsData = result["goals"] as? [[String: Any]] {
-            self?.goals = goalsData
-            if !result.isLoading && result.error == nil {
-              self?.log("[INFO] Received \(goalsData.count) goals from query")
-            }
-          } else {
-            self?.goals = []
-          }
+        if !result.isLoading && result.error == nil {
+          self.log("[INFO] Received \(result.data.count) goals from query")
         }
       }
       log("[INFO] Subscribed to goals query")

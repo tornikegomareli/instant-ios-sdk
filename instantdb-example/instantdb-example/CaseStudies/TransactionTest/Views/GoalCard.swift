@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct GoalCard: View {
-  let goal: [String: Any]
+  let goal: Goal
   let onTap: () -> Void
   let onDelete: () -> Void
 
@@ -9,11 +9,11 @@ struct GoalCard: View {
     Button(action: onTap) {
       VStack(alignment: .leading, spacing: 8) {
         HStack {
-          Text(goal["title"] as? String ?? "Untitled")
+          Text(goal.title)
             .font(.headline)
             .foregroundColor(.primary)
           Spacer()
-          if let difficulty = goal["difficulty"] as? Int {
+          if let difficulty = goal.difficulty {
             DifficultyIndicator(level: difficulty)
           }
           Image(systemName: "chevron.right")
@@ -21,7 +21,7 @@ struct GoalCard: View {
             .foregroundColor(.secondary)
         }
 
-        Text("ID: \(goal["id"] as? String ?? "unknown")")
+        Text("ID: \(goal.id)")
           .font(.caption2)
           .foregroundColor(.secondary)
       }

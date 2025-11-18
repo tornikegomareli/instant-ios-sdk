@@ -8,9 +8,9 @@ struct EditGoalSheet: View {
   let onSave: (String, Int) -> Void
   let onDelete: () -> Void
 
-  init(goal: [String: Any], onSave: @escaping (String, Int) -> Void, onDelete: @escaping () -> Void) {
-    _title = State(initialValue: goal["title"] as? String ?? "")
-    _difficultyText = State(initialValue: String(goal["difficulty"] as? Int ?? 5))
+  init(goal: Goal, onSave: @escaping (String, Int) -> Void, onDelete: @escaping () -> Void) {
+    _title = State(initialValue: goal.title)
+    _difficultyText = State(initialValue: String(goal.difficulty ?? 5))
     self.onSave = onSave
     self.onDelete = onDelete
   }
