@@ -311,12 +311,13 @@ public final class InstantClient: ObservableObject {
 
     print("[InstantDB] ✗ Server error: \(errorMsg)")
     if let hint = hint {
-      print("[InstantDB]   Hint: \(hint)")
+      print("[InstantDB] ℹ Hint: \(hint)")
     }
+    print("[InstantDB] ⚠ Learn more: https://www.instantdb.com/docs")
 
-    // If this error is for a query, notify the query manager
+    let error = InstantError.serverError(errorMsg, hint: hint)
+
     if let eventId = message.clientEventId {
-      let error = InstantError.serverError(errorMsg)
       Task { @MainActor in
         self.queryManager.handleQueryError(eventId: eventId, error: error)
       }
@@ -324,49 +325,80 @@ public final class InstantClient: ObservableObject {
   }
 }
 
-// MARK: - Query API
+// MARK: - Type-Safe Query API
 
 extension InstantClient {
 
-  /// Subscribe to a query with a callback for results
-  /// - Parameters:
-  ///   - query: InstaQL query dictionary (e.g., ["goals": [:]])
-  ///   - callback: Called when query results arrive or update
-  /// - Returns: Unsubscribe function - call this to stop receiving updates
+  /// Create a type-safe query for an entity type
+  /// - Parameter type: The InstantEntity type to query
+  /// - Returns: A typed query builder
   ///
   /// Example:
   /// ```swift
-  /// let unsubscribe = try db.subscribeQuery(["goals": [:]]) { result in
-  ///   if let error = result.error {
-  ///     print("Query failed: \(error)")
-  ///   } else if let goals = result["goals"] {
-  ///     print("Got \(goals.count) goals")
-  ///   }
-  /// }
+  /// db.query(Goal.self)
+  ///     .where { $0.difficulty > 5 }
+  ///     .limit(10)
+  /// ```
+  public func query<T: InstantEntity>(_ type: T.Type) -> TypedQuery<T> {
+    TypedQuery<T>(namespace: T.namespace)
+  }
+
+  /// Subscribe to a type-safe query
+  /// - Parameters:
+  ///   - query: Typed query instance
+  ///   - callback: Called when query results arrive or update
+  /// - Returns: Unsubscribe function
   ///
-  /// // Later, to unsubscribe:
-  /// unsubscribe()
+  /// Example:
+  /// ```swift
+  /// try db.subscribe(
+  ///   db.query(Goal.self).where { $0.difficulty > 5 }
+  /// ) { result in
+  ///   self.goals = result.data  // Already [Goal]!
+  /// }
   /// ```
   @discardableResult
-  public func subscribeQuery(
-    _ query: [String: Any],
-    callback: @escaping QueryCallback
+  public func subscribe<T: InstantEntity>(
+    _ query: TypedQuery<T>,
+    callback: @escaping TypedQueryCallback<T>
   ) throws -> (() -> Void) {
     guard connectionState == .authenticated else {
       throw InstantError.notAuthenticated
     }
 
-    let unsubscribe = queryManager.subscribe(query: query, callback: callback)
+    let instaqlQuery = query.toQuery()
+    let namespace = query.namespace
+
+    // Wrap callback to decode results automatically
+    let wrappedCallback: QueryCallback = { [weak self] result in
+      guard let self = self else { return }
+
+      if result.isLoading {
+        callback(.loading)
+        return
+      }
+
+      if let error = result.error {
+        callback(.failure(error))
+        return
+      }
+
+      // Decode data to type T
+      let decoded = result.decode(T.self, from: namespace)
+      callback(.success(data: decoded))
+    }
+
+    let unsubscribe = queryManager.subscribe(query: instaqlQuery, callback: wrappedCallback)
 
     // Get the subscription to send to server
-    let hash = hashQuery(query)
+    let hash = hashQuery(instaqlQuery)
     guard let subscription = queryManager.getSubscription(hash: hash) else {
       throw InstantError.invalidQuery
     }
 
     let message = AddQueryMessage(
       clientEventId: subscription.eventId,
-      query: query
+      query: instaqlQuery
     )
 
     try connection.send(message)
