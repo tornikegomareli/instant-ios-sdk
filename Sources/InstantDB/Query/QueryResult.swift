@@ -35,5 +35,97 @@ public struct QueryResult {
   }
 }
 
+// MARK: - Convenience Helpers
+
+extension QueryResult {
+
+  /// Get entities for namespace, never nil (returns empty array if not found)
+  public func get(_ namespace: String) -> [[String: Any]] {
+    data[namespace] as? [[String: Any]] ?? []
+  }
+
+  /// Get entities with custom default
+  public func get(_ namespace: String, default: [[String: Any]]) -> [[String: Any]] {
+    data[namespace] as? [[String: Any]] ?? `default`
+  }
+
+  /// Get first entity in namespace
+  public func getFirst(_ namespace: String) -> [String: Any]? {
+    get(namespace).first
+  }
+}
+
+// MARK: - Codable Support
+
+extension QueryResult {
+
+  /// Decode entities from namespace to Codable array
+  ///
+  /// Example:
+  /// ```swift
+  /// struct Goal: Codable {
+  ///   let id: String
+  ///   let title: String
+  /// }
+  ///
+  /// db.subscribeQuery(Q.namespace("goals")) { result in
+  ///   let goals: [Goal] = result.decode(Goal.self, from: "goals")
+  /// }
+  /// ```
+  public func decode<T: Decodable>(_ type: T.Type, from namespace: String) -> [T] {
+    let entities = get(namespace)
+    guard !entities.isEmpty else { return [] }
+
+    do {
+      let jsonData = try JSONSerialization.data(withJSONObject: entities)
+      return try JSONDecoder().decode([T].self, from: jsonData)
+    } catch {
+      print("[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)")
+      return []
+    }
+  }
+
+  /// Decode single entity from namespace
+  ///
+  /// Returns the first entity decoded to the specified type.
+  ///
+  /// Example:
+  /// ```swift
+  /// let goal: Goal? = result.decodeFirst(Goal.self, from: "goals")
+  /// ```
+  public func decodeFirst<T: Decodable>(_ type: T.Type, from namespace: String) -> T? {
+    decode(type, from: namespace).first
+  }
+
+  /// Decode entities using custom JSONDecoder
+  ///
+  /// Use this when you need custom decoding strategies (e.g., date formatting, key conversion)
+  ///
+  /// Example:
+  /// ```swift
+  /// let decoder = JSONDecoder()
+  /// decoder.dateDecodingStrategy = .iso8601
+  /// decoder.keyDecodingStrategy = .convertFromSnakeCase
+  ///
+  /// let goals: [Goal] = result.decode(Goal.self, from: "goals", decoder: decoder)
+  /// ```
+  public func decode<T: Decodable>(
+    _ type: T.Type,
+    from namespace: String,
+    decoder: JSONDecoder
+  ) -> [T] {
+    let entities = get(namespace)
+    guard !entities.isEmpty else { return [] }
+
+    do {
+      let jsonData = try JSONSerialization.data(withJSONObject: entities)
+      return try decoder.decode([T].self, from: jsonData)
+    } catch {
+      print("[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)")
+      return []
+    }
+  }
+}
+
 /// Callback type for query subscriptions
 public typealias QueryCallback = (QueryResult) -> Void
