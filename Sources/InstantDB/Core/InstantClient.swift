@@ -54,10 +54,12 @@ public final class InstantClient: ObservableObject {
     
     setupConnection()
     setupMessageHandlers()
-    
+
     Task {
       await authManager.restoreAuth()
     }
+
+    connection.connect()
   }
   
   private func setupConnection() {
