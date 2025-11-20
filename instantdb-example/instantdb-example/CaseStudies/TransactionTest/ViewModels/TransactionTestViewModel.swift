@@ -28,6 +28,7 @@ class TransactionTestViewModel: ObservableObject {
     do {
       unsubscribe = try db.subscribe(
         db.query(Goal.self)
+          .where { $0.difficulty > 5 }
       ) { [weak self] result in
         guard let self else { return }
         self.isLoading = result.isLoading
@@ -48,13 +49,13 @@ class TransactionTestViewModel: ObservableObject {
     guard let db = db else { return }
 
     do {
-      let goalId = newId()
-      try db.transact(
-        db.tx.goals[goalId].update([
-          "title": title,
-          "difficulty": difficulty
-        ])
-      )
+      try db.transact {
+        Goal.create(
+          title: title,
+          difficulty: difficulty,
+          completed: false
+        )
+      }
       log("[SUCCESS] Created goal: \(title) (difficulty: \(difficulty))")
     } catch {
       log("[ERROR] Failed to create goal: \(error.localizedDescription)")
@@ -65,12 +66,13 @@ class TransactionTestViewModel: ObservableObject {
     guard let db = db else { return }
 
     do {
-      try db.transact(
-        db.tx.goals[goalId].update([
-          "title": title,
-          "difficulty": difficulty
-        ])
-      )
+      try db.transact {
+        Goal.update(
+          id: goalId,
+          title: title,
+          difficulty: difficulty
+        )
+      }
       log("[SUCCESS] Updated goal: \(title)")
       editingGoalId = nil
     } catch {
@@ -82,9 +84,9 @@ class TransactionTestViewModel: ObservableObject {
     guard let db = db else { return }
 
     do {
-      try db.transact(
-        db.tx.goals[goalId].delete()
-      )
+      try db.transact {
+        Goal.delete(id: goalId)
+      }
       log("[SUCCESS] Deleted goal: \(goalId)")
       editingGoalId = nil
     } catch {
