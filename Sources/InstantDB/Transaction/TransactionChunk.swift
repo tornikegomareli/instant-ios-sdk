@@ -1,73 +1,59 @@
 import Foundation
 
-/// Represents a chain of transaction operations
-public final class TransactionChunk {
-  private(set) var ops: [[Any]]
-  private let entityType: String
-  private let entityId: String
+/// Represents a transaction operation chunk
+///
+/// TransactionChunk is immutable and chainable - each operation returns a new chunk.
+/// This matches the React InstantDB API pattern.
+public struct TransactionChunk {
+    public let namespace: String
+    public let id: String
+    public let ops: [[Any]]
 
-  init(entityType: String, entityId: String, ops: [[Any]] = []) {
-    self.entityType = entityType
-    self.entityId = entityId
-    self.ops = ops
-  }
+    public init(namespace: String, id: String, ops: [[Any]]) {
+        self.namespace = namespace
+        self.id = id
+        self.ops = ops
+    }
+}
 
-  /// Create a new entity with the provided attributes
-  /// - Parameter attributes: Dictionary of attribute names and values
-  /// - Returns: A new TransactionChunk with the create operation added
-  public func create(_ attributes: [String: Any]) -> TransactionChunk {
-    let newOps = ops + [["create", entityType, entityId, attributes]]
-    return TransactionChunk(entityType: entityType, entityId: entityId, ops: newOps)
-  }
+/// Result builder for batch transactions
+///
+/// Enables clean transaction syntax:
+/// ```swift
+/// try db.transact {
+///     Goal.create(title: "Get fit")
+///     Todo.update(id: todoId, done: true)
+///     Goal.delete(id: oldGoalId)
+/// }
+/// ```
+@resultBuilder
+public struct TransactionBatchBuilder {
+    public static func buildBlock(_ components: TransactionChunk...) -> [TransactionChunk] {
+        Array(components)
+    }
 
-  /// Update entity attributes (upsert by default)
-  /// - Parameters:
-  ///   - attributes: Dictionary of attribute names and values
-  ///   - upsert: If false, throws error if entity doesn't exist. Default is true.
-  /// - Returns: A new TransactionChunk with the update operation added
-  public func update(_ attributes: [String: Any], upsert: Bool = true) -> TransactionChunk {
-    let opts = ["upsert": upsert]
-    let newOps = ops + [["update", entityType, entityId, attributes, opts]]
-    return TransactionChunk(entityType: entityType, entityId: entityId, ops: newOps)
-  }
+    public static func buildArray(_ components: [TransactionChunk]) -> [TransactionChunk] {
+        components
+    }
 
-  /// Merge attributes with existing entity (deep merge for nested objects)
-  /// - Parameters:
-  ///   - attributes: Dictionary of attribute names and values to merge
-  ///   - upsert: If false, throws error if entity doesn't exist. Default is true.
-  /// - Returns: A new TransactionChunk with the merge operation added
-  public func merge(_ attributes: [String: Any], upsert: Bool = true) -> TransactionChunk {
-    let opts = ["upsert": upsert]
-    let newOps = ops + [["merge", entityType, entityId, attributes, opts]]
-    return TransactionChunk(entityType: entityType, entityId: entityId, ops: newOps)
-  }
+    public static func buildOptional(_ component: TransactionChunk?) -> [TransactionChunk] {
+        component.map { [$0] } ?? []
+    }
 
-  /// Link this entity to other entities
-  /// - Parameter links: Dictionary mapping link names to entity IDs (String or [String])
-  /// - Returns: A new TransactionChunk with the link operation added
-  ///
-  /// Example:
-  /// ```swift
-  /// tx.goals[goalId].link(["todos": todoId])
-  /// tx.goals[goalId].link(["todos": [todoId1, todoId2]])
-  /// ```
-  public func link(_ links: [String: Any]) -> TransactionChunk {
-    let newOps = ops + [["link", entityType, entityId, links]]
-    return TransactionChunk(entityType: entityType, entityId: entityId, ops: newOps)
-  }
+    public static func buildEither(first component: TransactionChunk) -> [TransactionChunk] {
+        [component]
+    }
 
-  /// Unlink this entity from other entities
-  /// - Parameter links: Dictionary mapping link names to entity IDs (String or [String])
-  /// - Returns: A new TransactionChunk with the unlink operation added
-  public func unlink(_ links: [String: Any]) -> TransactionChunk {
-    let newOps = ops + [["unlink", entityType, entityId, links]]
-    return TransactionChunk(entityType: entityType, entityId: entityId, ops: newOps)
-  }
+    public static func buildEither(second component: TransactionChunk) -> [TransactionChunk] {
+        [component]
+    }
 
-  /// Delete this entity and all its links
-  /// - Returns: A new TransactionChunk with the delete operation added
-  public func delete() -> TransactionChunk {
-    let newOps = ops + [["delete", entityType, entityId]]
-    return TransactionChunk(entityType: entityType, entityId: entityId, ops: newOps)
-  }
+    public static func buildExpression(_ expression: TransactionChunk) -> TransactionChunk {
+        expression
+    }
+}
+
+/// Generate a new UUID for use as an entity ID
+public func id() -> String {
+    UUID().uuidString
 }
