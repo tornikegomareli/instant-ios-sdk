@@ -28,7 +28,6 @@ class TransactionTestViewModel: ObservableObject {
     do {
       unsubscribe = try db.subscribe(
         db.query(Goal.self)
-          .where { $0.difficulty > 5 }
       ) { [weak self] result in
         guard let self else { return }
         self.isLoading = result.isLoading

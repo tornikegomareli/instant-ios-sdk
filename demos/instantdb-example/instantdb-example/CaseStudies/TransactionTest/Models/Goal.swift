@@ -7,6 +7,4 @@ struct Goal {
   var title: String
   var difficulty: Int?
   var completed: Bool?
-
-  var todos: [Todo]?
 }
