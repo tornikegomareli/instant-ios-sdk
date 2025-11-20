@@ -14,9 +14,9 @@ struct instantdb_exampleApp: App {
   var body: some Scene {
     WindowGroup {
       TabView {
-        ContentView()
+        DemoSelectorView()
           .tabItem {
-            Label("Connection", systemImage: "network")
+            Label("Demos", systemImage: "square.grid.2x2")
           }
 
         AuthExamplesView()
