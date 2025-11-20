@@ -445,6 +445,22 @@ extension InstantClient {
     try transact([chunk])
   }
 
+  /// Execute transactions using result builder syntax
+  ///
+  /// Example:
+  /// ```swift
+  /// try db.transact {
+  ///     Goal.create(title: "Get fit", difficulty: 5)
+  ///     Todo.update(id: todoId, done: true)
+  ///     Goal.delete(id: oldGoalId)
+  /// }
+  /// ```
+  /// - Parameter build: Result builder closure that returns transaction chunks
+  public func transact(@TransactionBatchBuilder _ build: () -> [TransactionChunk]) throws {
+    let chunks = build()
+    try transact(chunks)
+  }
+
   /// Send a transaction to the server
   /// - Parameter txSteps: Array of transaction operations
   public func transact(_ txSteps: [[Any]]) throws {
