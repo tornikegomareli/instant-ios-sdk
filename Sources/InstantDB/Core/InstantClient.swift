@@ -362,10 +362,6 @@ extension InstantClient {
     _ query: TypedQuery<T>,
     callback: @escaping TypedQueryCallback<T>
   ) throws -> (() -> Void) {
-    guard connectionState == .authenticated else {
-      throw InstantError.notAuthenticated
-    }
-
     let instaqlQuery = query.toQuery()
     let namespace = query.namespace
 

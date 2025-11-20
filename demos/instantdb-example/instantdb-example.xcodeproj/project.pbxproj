@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E615F2E72ECFBA5D00AA508A /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E615F2E62ECFBA5D00AA508A /* InstantDB */; };
 		E6637CF52EA8460300EE0ECD /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E6637CF42EA8460300EE0ECD /* InstantDB */; };
 		E677AD992EAED5C30067ED59 /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E677AD982EAED5C30067ED59 /* InstantDB */; };
 		E6E3FF652EAED511003DBAD3 /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E6E3FF642EAED511003DBAD3 /* InstantDB */; };
@@ -51,6 +52,7 @@
 				E677AD992EAED5C30067ED59 /* InstantDB in Frameworks */,
 				E6E505F02EB2B5F300F37F34 /* GoogleSignIn in Frameworks */,
 				E6E3FF652EAED511003DBAD3 /* InstantDB in Frameworks */,
+				E615F2E72ECFBA5D00AA508A /* InstantDB in Frameworks */,
 				E6637CF52EA8460300EE0ECD /* InstantDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -100,6 +102,7 @@
 				E6E505EF2EB2B5F300F37F34 /* GoogleSignIn */,
 				E6E505F12EB2B5F300F37F34 /* GoogleSignInSwift */,
 				E6E505F72EB2C60C00F37F34 /* Clerk */,
+				E615F2E62ECFBA5D00AA508A /* InstantDB */,
 			);
 			productName = "instantdb-example";
 			productReference = E6637CE52EA845F000EE0ECD /* instantdb-example.app */;
@@ -130,9 +133,9 @@
 			mainGroup = E6637CDC2EA845F000EE0ECD;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				E677AD972EAED5C30067ED59 /* XCLocalSwiftPackageReference "../../instant-ios-sdk" */,
 				E6E505EE2EB2B5F300F37F34 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				E6E505F62EB2C60C00F37F34 /* XCRemoteSwiftPackageReference "clerk-ios" */,
+				E615F2E52ECFBA5D00AA508A /* XCLocalSwiftPackageReference "../../../instant-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E6637CE62EA845F000EE0ECD /* Products */;
@@ -378,9 +381,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		E677AD972EAED5C30067ED59 /* XCLocalSwiftPackageReference "../../instant-ios-sdk" */ = {
+		E615F2E52ECFBA5D00AA508A /* XCLocalSwiftPackageReference "../../../instant-ios-sdk" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../instant-ios-sdk";
+			relativePath = "../../../instant-ios-sdk";
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -404,6 +407,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		E615F2E62ECFBA5D00AA508A /* InstantDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = InstantDB;
+		};
 		E6637CF42EA8460300EE0ECD /* InstantDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = InstantDB;
