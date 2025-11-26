@@ -45,9 +45,6 @@ struct TransactionTestView: View {
     .onAppear {
       viewModel.setup(db: db)
     }
-    .onDisappear {
-      viewModel.cleanup()
-    }
   }
 }
 
@@ -111,12 +108,11 @@ struct GoalsListView: View {
           GoalCard(
             goal: viewModel.goals[index],
             onTap: {
-              //viewModel.editingGoalId = viewModel.goals[index]["id"] as? String
+              viewModel.editingGoalId = viewModel.goals[index].id
             },
             onDelete: {
-//              if let goalId = viewModel.goals[index]["id"] as? String {
-//                viewModel.deleteGoal(goalId: goalId)
-//              }
+              let goalId = viewModel.goals[index].id
+              viewModel.deleteGoal(goalId: goalId)
             }
           )
         }
