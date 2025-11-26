@@ -10,7 +10,7 @@ class TransactionTestViewModel: ObservableObject {
   @Published var showCreateSheet = false
   @Published var editingGoalId: String?
 
-  private var unsubscribe: (() -> Void)?
+  private var subscriptions = Set<SubscriptionToken>()
   private weak var db: InstantClient?
 
   func setup(db: InstantClient) {
@@ -18,15 +18,11 @@ class TransactionTestViewModel: ObservableObject {
     subscribeToGoals()
   }
 
-  func cleanup() {
-    unsubscribe?()
-  }
-
   private func subscribeToGoals() {
     guard let db = db else { return }
 
     do {
-      unsubscribe = try db.subscribe(
+      try db.subscribe(
         db.query(Goal.self)
       ) { [weak self] result in
         guard let self else { return }
@@ -38,6 +34,7 @@ class TransactionTestViewModel: ObservableObject {
           self.log("[INFO] Received \(result.data.count) goals from query")
         }
       }
+      .store(in: &subscriptions)
       log("[INFO] Subscribed to goals query")
     } catch {
       log("[ERROR] Failed to subscribe: \(error.localizedDescription)")
