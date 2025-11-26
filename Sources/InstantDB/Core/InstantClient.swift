@@ -349,21 +349,26 @@ extension InstantClient {
   /// - Parameters:
   ///   - query: Typed query instance
   ///   - callback: Called when query results arrive or update
-  /// - Returns: Unsubscribe function
+  /// - Returns: Subscription token that auto-cleans on deinit
   ///
   /// Example:
   /// ```swift
-  /// try db.subscribe(
-  ///   db.query(Goal.self).where { $0.difficulty > 5 }
-  /// ) { result in
-  ///   self.goals = result.data  // Already [Goal]!
+  /// class GoalsViewModel {
+  ///     private var subscriptions = Set<Subscription>()
+  ///
+  ///     func start() {
+  ///         try? db.subscribe(db.query(Goal.self)) { result in
+  ///             self.goals = result.data
+  ///         }
+  ///         .store(in: &subscriptions)
+  ///     }
   /// }
   /// ```
   @discardableResult
   public func subscribe<T: InstantEntity>(
     _ query: TypedQuery<T>,
     callback: @escaping TypedQueryCallback<T>
-  ) throws -> (() -> Void) {
+  ) throws -> SubscriptionToken {
     let instaqlQuery = query.toQuery()
     let namespace = query.namespace
 
@@ -401,7 +406,7 @@ extension InstantClient {
 
     try connection.send(message)
 
-    return unsubscribe
+    return SubscriptionToken(onCleanup: unsubscribe)
   }
 
   private func hashQuery(_ query: [String: Any]) -> String {
