@@ -1,5 +1,8 @@
 import Foundation
 
+extension TypedQuery: @unchecked Sendable where T: Sendable {}
+extension TypedResult: @unchecked Sendable where T: Sendable {}
+
 extension TypedQuery {
   /// Returns an AsyncStream of query results
   ///
@@ -24,25 +27,28 @@ extension TypedQuery {
   ///         }
   ///     }
   /// ```
-  public func values(using client: InstantClient) -> AsyncStream<TypedResult<T>> {
-    let (stream, continuation) = AsyncStream<TypedResult<T>>.makeStream()
-
-    let subscription: SubscriptionToken?
-    do {
-      subscription = try client.subscribe(self) { result in
-        continuation.yield(result)
+  public func values(using client: InstantClient) -> AsyncStream<TypedResult<T>> where T: Sendable {
+    AsyncStream { continuation in
+      let query = self
+      
+      Task { @MainActor in
+        do {
+          let token = try client.subscribe(query) { result in
+            continuation.yield(result)
+          }
+          
+          continuation.onTermination = { _ in
+            Task { @MainActor in
+              token.cancel()
+            }
+          }
+          
+        } catch {
+          continuation.yield(.failure(error))
+          continuation.finish()
+        }
       }
-    } catch {
-      continuation.yield(.failure(error))
-      continuation.finish()
-      subscription = nil
     }
-
-    continuation.onTermination = { _ in
-      subscription?.cancel()
-    }
-
-    return stream
   }
 }
 
@@ -60,7 +66,7 @@ extension InstantClient {
   ///     }
   /// }
   /// ```
-  public func stream<T: InstantEntity>(_ query: TypedQuery<T>) -> AsyncStream<TypedResult<T>> {
+  public func stream<T: InstantEntity & Sendable>(_ query: TypedQuery<T>) -> AsyncStream<TypedResult<T>> {
     query.values(using: self)
   }
 }
