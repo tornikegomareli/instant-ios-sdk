@@ -8,6 +8,7 @@ import Foundation
 ///     .where { $0.difficulty > 5 }
 ///     .limit(10)
 /// ```
+/// 
 public struct TypedQuery<T: InstantEntity> {
   let namespace: String
   var whereClause: [String: Any]?
