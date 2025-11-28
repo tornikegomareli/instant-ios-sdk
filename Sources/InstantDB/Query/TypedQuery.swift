@@ -16,8 +16,11 @@ public struct TypedQuery<T: InstantEntity> {
   var offsetValue: Int?
   var nestedQueries: [String: Any] = [:]
   
-  init(namespace: String) {
+  internal weak var client: InstantClient?
+  
+  init(namespace: String, client: InstantClient? = nil) {
     self.namespace = namespace
+    self.client = client
   }
   
   /// Filters query results using a type-safe predicate

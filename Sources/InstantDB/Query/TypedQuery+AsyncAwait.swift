@@ -4,31 +4,48 @@ extension TypedQuery: @unchecked Sendable where T: Sendable {}
 extension TypedResult: @unchecked Sendable where T: Sendable {}
 
 extension TypedQuery {
-  /// Returns an AsyncStream of query results
+  /// Returns an `AsyncStream` of query results for real-time data subscription.
   ///
-  /// This provides a modern async/await interface for subscribing to query updates.
-  /// The stream automatically cleans up when the Task is cancelled.
+  /// This method provides a modern async/await interface for subscribing to query updates
+  /// in real-time. The stream automatically manages subscription lifecycle and cleans up
+  /// resources when the task is cancelled or completed.
   ///
-  /// Example:
+  /// - Returns: An `AsyncStream` that yields `TypedResult<T>` containing the latest query data
+  ///
+  /// - Important: The query must be created with a valid `InstantClient` instance.
+  ///   If no client is available, the stream will finish immediately with an error message.
+  ///
+  /// ## Usage Examples
+  ///
+  /// ### In a ViewModel
   /// ```swift
-  /// // In a ViewModel
-  /// Task {
-  ///     for await result in db.query(Goal.self).values {
-  ///         self.goals = result.data
-  ///         self.isLoading = result.isLoading
+  /// @MainActor
+  /// class GoalViewModel: ObservableObject {
+  ///     @Published var goals: [Goal] = []
+  ///     @Published var isLoading = false
+  ///
+  ///     func subscribeToGoals() {
+  ///      Task {
+  ///             for await result in db.query(Goal.self).values() {
+  ///                 self.goals = result.data
+  ///                 self.isLoading = result.isLoading
+  ///             }
+  ///      }
   ///     }
   /// }
   ///
-  /// // In TCA Reducer
-  /// case .subscribeToGoals:
-  ///     return .run { send in
-  ///         for await result in db.query(Goal.self).values {
-  ///             await send(.goalsUpdated(result.data))
-  ///         }
-  ///     }
-  /// ```
-  public func values(using client: InstantClient) -> AsyncStream<TypedResult<T>> where T: Sendable {
-    AsyncStream { continuation in
+  /// ## Automatic Cleanup
+  /// The subscription is automatically cancelled when:
+  /// - The containing `Task` is cancelled
+  /// - The `AsyncStream` is deallocated
+  /// - The stream reaches completion
+  public func values() -> AsyncStream<TypedResult<T>> where T: Sendable {
+    guard let client = self.client else {
+      print("[InstantDB] Error: Query was created without an InstantClient instance.")
+      return AsyncStream { $0.finish() }
+    }
+    
+    return AsyncStream { continuation in
       let query = self
       
       Task { @MainActor in
@@ -53,12 +70,18 @@ extension TypedQuery {
 }
 
 extension InstantClient {
-  /// Subscribe to a query using AsyncStream
+  /// Creates an `AsyncStream` for real-time query subscription.
   ///
-  /// This is a convenience method that creates an AsyncStream for the query.
-  /// The stream automatically cleans up when the Task is cancelled.
+  /// This convenience method provides an alternative way to subscribe to query results
+  /// using async/await patterns. It's functionally equivalent to calling `query.values()`,
+  /// but provides a more explicit API when working directly with the client.
   ///
-  /// Example:
+  /// - Parameter query: The `TypedQuery` to subscribe to for real-time updates
+  /// - Returns: An `AsyncStream` that yields `TypedResult<T>` containing the latest query data
+  ///
+  /// ## Usage Examples
+  ///
+  /// ### Basic Subscription
   /// ```swift
   /// Task {
   ///     for await result in db.stream(db.query(Goal.self)) {
@@ -66,7 +89,23 @@ extension InstantClient {
   ///     }
   /// }
   /// ```
+  ///
+  /// ### With Query Building
+  /// ```swift
+  /// let query = db.query(Goal.self).where("completed", isEqualTo: false)
+  /// 
+  /// Task {
+  ///     for await result in db.stream(query) {
+  ///         self.activeGoals = result.data
+  ///     }
+  /// }
+  /// ```
+  ///
+  /// - Note: This method delegates to `TypedQuery.values()` and provides the same
+  ///   automatic cleanup and lifecycle management.
+  ///
+  /// - SeeAlso: ``TypedQuery/values()`` for detailed documentation on stream behavior
   public func stream<T: InstantEntity & Sendable>(_ query: TypedQuery<T>) -> AsyncStream<TypedResult<T>> {
-    query.values(using: self)
+    query.values()
   }
 }

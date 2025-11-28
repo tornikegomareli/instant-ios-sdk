@@ -342,7 +342,7 @@ extension InstantClient {
   ///     .limit(10)
   /// ```
   public func query<T: InstantEntity>(_ type: T.Type) -> TypedQuery<T> {
-    TypedQuery<T>(namespace: T.namespace)
+    TypedQuery<T>(namespace: T.namespace, client: self)
   }
 
   /// Subscribe to a type-safe query
