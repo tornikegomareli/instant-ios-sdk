@@ -1,0 +1,97 @@
+import Foundation
+import InstantDB
+
+@MainActor
+class TransactionTestViewModel: ObservableObject {
+  @Published var goals: [Goal] = []
+  @Published var isLoading = false
+  @Published var error: String?
+  @Published var transactionLog: [String] = []
+  @Published var showCreateSheet = false
+  @Published var editingGoalId: String?
+
+  private var subscriptions = Set<SubscriptionToken>()
+  private weak var db: InstantClient?
+
+  func setup(db: InstantClient) {
+    self.db = db
+    subscribeToGoals()
+  }
+
+  private func subscribeToGoals() {
+    guard let db = db else { return }
+
+    do {
+      try db.subscribe(
+        db.query(Goal.self)
+      ) { [weak self] result in
+        guard let self else { return }
+        self.isLoading = result.isLoading
+        self.error = result.error?.localizedDescription
+        self.goals = result.data
+
+        if !result.isLoading && result.error == nil {
+          self.log("[INFO] Received \(result.data.count) goals from query")
+        }
+      }
+      .store(in: &subscriptions)
+      log("[INFO] Subscribed to goals query")
+    } catch {
+      log("[ERROR] Failed to subscribe: \(error.localizedDescription)")
+    }
+  }
+
+  func createGoal(title: String, difficulty: Int) {
+    guard let db = db else { return }
+
+    do {
+      try db.transact {
+        Goal.create(
+          title: title,
+          difficulty: difficulty,
+          completed: false
+        )
+      }
+      log("[SUCCESS] Created goal: \(title) (difficulty: \(difficulty))")
+    } catch {
+      log("[ERROR] Failed to create goal: \(error.localizedDescription)")
+    }
+  }
+
+  func updateGoal(goalId: String, title: String, difficulty: Int) {
+    guard let db = db else { return }
+
+    do {
+      try db.transact {
+        Goal.update(
+          id: goalId,
+          title: title,
+          difficulty: difficulty
+        )
+      }
+      log("[SUCCESS] Updated goal: \(title)")
+      editingGoalId = nil
+    } catch {
+      log("[ERROR] Failed to update: \(error.localizedDescription)")
+    }
+  }
+
+  func deleteGoal(goalId: String) {
+    guard let db = db else { return }
+
+    do {
+      try db.transact {
+        Goal.delete(id: goalId)
+      }
+      log("[SUCCESS] Deleted goal: \(goalId)")
+      editingGoalId = nil
+    } catch {
+      log("[ERROR] Failed to delete: \(error.localizedDescription)")
+    }
+  }
+
+  private func log(_ message: String) {
+    let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+    transactionLog.append("[\(timestamp)] \(message)")
+  }
+}

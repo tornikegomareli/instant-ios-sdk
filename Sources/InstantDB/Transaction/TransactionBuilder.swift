@@ -12,7 +12,7 @@ public final class EntityBuilder {
   /// - Parameter id: Entity ID (UUID string or lookup string)
   /// - Returns: A TransactionChunk ready for operations
   public subscript(id: String) -> TransactionChunk {
-    TransactionChunk(entityType: entityType, entityId: id, ops: [])
+    TransactionChunk(namespace: entityType, id: id, ops: [])
   }
 }
 
@@ -33,6 +33,13 @@ public final class TransactionBuilder {
   /// - Parameter entityType: Name of the entity type (e.g., "goals", "todos")
   /// - Returns: An EntityBuilder for that type
   public subscript(dynamicMember entityType: String) -> EntityBuilder {
+    EntityBuilder(entityType: entityType)
+  }
+
+  /// Access entity type by namespace
+  /// - Parameter entityType: Name of the entity type
+  /// - Returns: An EntityBuilder for that type
+  public func namespace(_ entityType: String) -> EntityBuilder {
     EntityBuilder(entityType: entityType)
   }
 }

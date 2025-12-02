@@ -18,8 +18,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/google/GoogleSignIn-iOS", from: "9.0.0"),
-        .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
-        .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.3.2")
+        .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0")
     ],
     targets: [
         // Macro implementation (compiler plugin)
@@ -36,8 +35,7 @@ let package = Package(
             name: "InstantDB",
             dependencies: [
                 "InstantDBMacros",
-                .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS"),
-                .product(name: "ConcurrencyExtras", package: "swift-concurrency-extras")
+                .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS")
             ],
             path: "Sources/InstantDB"
         ),
