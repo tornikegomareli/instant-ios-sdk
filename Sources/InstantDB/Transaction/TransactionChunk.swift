@@ -28,28 +28,28 @@ public struct TransactionChunk {
 /// ```
 @resultBuilder
 public struct TransactionBatchBuilder {
-    public static func buildBlock(_ components: TransactionChunk...) -> [TransactionChunk] {
-        Array(components)
+    public static func buildBlock(_ components: [TransactionChunk]...) -> [TransactionChunk] {
+        components.flatMap { $0 }
     }
 
-    public static func buildArray(_ components: [TransactionChunk]) -> [TransactionChunk] {
-        components
+    public static func buildArray(_ components: [[TransactionChunk]]) -> [TransactionChunk] {
+        components.flatMap { $0 }
     }
 
-    public static func buildOptional(_ component: TransactionChunk?) -> [TransactionChunk] {
-        component.map { [$0] } ?? []
+    public static func buildOptional(_ component: [TransactionChunk]?) -> [TransactionChunk] {
+        component ?? []
     }
 
-    public static func buildEither(first component: TransactionChunk) -> [TransactionChunk] {
-        [component]
+    public static func buildEither(first component: [TransactionChunk]) -> [TransactionChunk] {
+        component
     }
 
-    public static func buildEither(second component: TransactionChunk) -> [TransactionChunk] {
-        [component]
+    public static func buildEither(second component: [TransactionChunk]) -> [TransactionChunk] {
+        component
     }
 
-    public static func buildExpression(_ expression: TransactionChunk) -> TransactionChunk {
-        expression
+    public static func buildExpression(_ expression: TransactionChunk) -> [TransactionChunk] {
+        [expression]
     }
 }
 
