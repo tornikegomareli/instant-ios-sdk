@@ -111,7 +111,7 @@ struct GoogleSignInExample: View {
         }
 
         let googleSignIn = SignInWithGoogle(clientID: AppConfig.googleClientID)
-        let idToken = try await googleSignIn.signIn(presentingViewController: rootViewController)
+        let idToken = try await googleSignIn.signIn(presenting: rootViewController)
         try await authManager.signInWithIdToken(
           clientName: "google-ios",
           idToken: idToken
