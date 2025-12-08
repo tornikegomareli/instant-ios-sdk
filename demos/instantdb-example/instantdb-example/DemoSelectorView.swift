@@ -97,6 +97,16 @@ struct DemoSelectorView: View {
           )
         }
         .disabled(db.connectionState != .authenticated)
+
+        NavigationLink(destination: PaginationTestView()) {
+          DemoCard(
+            icon: "book.pages.fill",
+            title: "Cursor Pagination",
+            description: "Test cursor-based pagination with ordering",
+            color: .blue
+          )
+        }
+        .disabled(db.connectionState != .authenticated)
       }
       .padding(.horizontal)
     }
