@@ -3,7 +3,6 @@ import Combine
 
 /// WebSocket connection manager for InstantDB
 public final class WebSocketConnection: NSObject {
-  
   private let url: URL
   private var webSocketTask: URLSessionWebSocketTask?
   private let urlSession: URLSession
@@ -81,9 +80,7 @@ public final class WebSocketConnection: NSObject {
     isActive = false
     webSocketTask?.cancel(with: .normalClosure, reason: nil)
     webSocketTask = nil
-    DispatchQueue.main.async { [weak self] in
-      self?.state = .disconnected
-    }
+    state = .disconnected
     onClose?()
   }
   
