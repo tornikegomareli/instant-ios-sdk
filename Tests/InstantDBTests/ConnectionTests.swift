@@ -1,6 +1,7 @@
 import XCTest
 @testable import InstantDB
 
+@MainActor
 final class ConnectionTests: XCTestCase {
   
   func testConnectionStateInitiallyDisconnected() {
@@ -8,15 +9,16 @@ final class ConnectionTests: XCTestCase {
     let client = InstantClient(appID: appID)
     
     XCTAssertEqual(client.connectionState, .disconnected)
-    XCTAssertFalse(client.isAuthenticated)
+    XCTAssertEqual(client.isAuthenticated, false)
     XCTAssertNil(client.sessionID)
   }
   
-  func testConnectionStateInitiallyConnected() {
+  func testConnectionStateInitiallyConnected() async throws {
     let appID = "a8a567cc-34a7-41b4-8802-d81186ad7014"
     let client = InstantClient(appID: appID)
     client.connect()
     
+    try await Task.sleep(nanoseconds: 500_000_000)
     XCTAssertEqual(client.connectionState, .connected)
   }
   
@@ -69,7 +71,7 @@ final class ConnectionTests: XCTestCase {
     XCTAssertEqual(attribute.forwardIdentity, ["id", "users", "email"])
     XCTAssertEqual(attribute.valueType, .string)
     XCTAssertEqual(attribute.cardinality, .one)
-    XCTAssertTrue(attribute.unique)
-    XCTAssertTrue(attribute.indexed)
+    XCTAssertTrue(attribute.unique == true)
+    XCTAssertTrue(attribute.indexed == true)
   }
 }
