@@ -388,7 +388,11 @@ extension InstantClient {
 
       // Decode data to type T
       let decoded = result.decode(T.self, from: namespace)
-      callback(.success(data: decoded))
+
+      // Parse pageInfo for this namespace
+      let pageInfo = PageInfo(from: result.pageInfo, namespace: namespace)
+
+      callback(.success(data: decoded, pageInfo: pageInfo))
     }
 
     let unsubscribe = queryManager.subscribe(query: instaqlQuery, callback: wrappedCallback)
