@@ -30,7 +30,7 @@ public enum ValueType: String, Codable {
 }
 
 /// Attribute cardinality
-public enum Cardinality: String, Codable {
+public enum Cardinality: String, Codable, Sendable {
   case one
   case many
 }
