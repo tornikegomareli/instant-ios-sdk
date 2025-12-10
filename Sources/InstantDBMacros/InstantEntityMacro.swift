@@ -54,6 +54,23 @@ public struct InstantEntityMacro: MemberMacro, ExtensionMacro {
             """
         )
 
+        // 2. Generate schemaAttributes for InstantEntitySchema
+        let schemaAttributesCode = storedProperties.filter { $0.name != "id" }.map { prop in
+            let baseType = prop.isOptional ? String(prop.type.dropLast()) : prop.type
+            let instantType = mapSwiftTypeToInstantType(baseType)
+            return "SchemaAttributeInfo(name: \"\(prop.name)\", dataType: .\(instantType), isOptional: \(prop.isOptional))"
+        }.joined(separator: ",\n            ")
+
+        generatedMembers.append(
+            """
+            static var schemaAttributes: [SchemaAttributeInfo] {
+                [
+                    \(raw: schemaAttributesCode)
+                ]
+            }
+            """
+        )
+
         // 2. Generate create method
         generatedMembers.append(contentsOf: try generateCreateMethod(
             namespace: namespace,
@@ -78,19 +95,19 @@ public struct InstantEntityMacro: MemberMacro, ExtensionMacro {
             """
             static func delete(id: String) -> TransactionChunk {
                 TransactionChunk(
-                    namespace: "\(raw: namespace)",
+                    namespace: namespace,
                     id: id,
-                    ops: [["delete", "\(raw: namespace)", id]]
+                    ops: [["delete", namespace, id]]
                 )
             }
             """
         )
 
         // 6. Generate link methods
-        generatedMembers.append(contentsOf: generateLinkMethods(namespace: namespace))
+        generatedMembers.append(contentsOf: generateLinkMethods())
 
         // 7. Generate unlink methods
-        generatedMembers.append(contentsOf: generateUnlinkMethods(namespace: namespace))
+        generatedMembers.append(contentsOf: generateUnlinkMethods())
 
         return generatedMembers
     }
@@ -131,9 +148,9 @@ public struct InstantEntityMacro: MemberMacro, ExtensionMacro {
                 \(raw: attributeAssignments)
 
                 return TransactionChunk(
-                    namespace: "\(raw: namespace)",
+                    namespace: namespace,
                     id: id,
-                    ops: [["update", "\(raw: namespace)", id, attrs]]
+                    ops: [["update", namespace, id, attrs]]
                 )
             }
             """
@@ -186,9 +203,9 @@ public struct InstantEntityMacro: MemberMacro, ExtensionMacro {
                 \(raw: attributeAssignments)
 
                 return TransactionChunk(
-                    namespace: "\(raw: namespace)",
+                    namespace: namespace,
                     id: id,
-                    ops: [["update", "\(raw: namespace)", id, attrs]]
+                    ops: [["update", namespace, id, attrs]]
                 )
             }
             """,
@@ -201,9 +218,9 @@ public struct InstantEntityMacro: MemberMacro, ExtensionMacro {
                 let attrs = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
 
                 return TransactionChunk(
-                    namespace: "\(raw: namespace)",
+                    namespace: namespace,
                     id: entity.id,
-                    ops: [["update", "\(raw: namespace)", entity.id, attrs]]
+                    ops: [["update", namespace, entity.id, attrs]]
                 )
             }
             """
@@ -251,23 +268,23 @@ public struct InstantEntityMacro: MemberMacro, ExtensionMacro {
                 \(raw: attributeAssignments)
 
                 return TransactionChunk(
-                    namespace: "\(raw: namespace)",
+                    namespace: namespace,
                     id: id,
-                    ops: [["merge", "\(raw: namespace)", id, attrs]]
+                    ops: [["merge", namespace, id, attrs]]
                 )
             }
             """
         ]
     }
 
-    private static func generateLinkMethods(namespace: String) -> [DeclSyntax] {
+    private static func generateLinkMethods() -> [DeclSyntax] {
         return [
             """
             static func link(id: String, _ relationship: String, to ids: [String]) -> TransactionChunk {
                 TransactionChunk(
-                    namespace: "\(raw: namespace)",
+                    namespace: namespace,
                     id: id,
-                    ops: [["link", "\(raw: namespace)", id, [relationship: ids]]]
+                    ops: [["link", namespace, id, [relationship: ids]]]
                 )
             }
             """,
@@ -280,14 +297,14 @@ public struct InstantEntityMacro: MemberMacro, ExtensionMacro {
         ]
     }
 
-    private static func generateUnlinkMethods(namespace: String) -> [DeclSyntax] {
+    private static func generateUnlinkMethods() -> [DeclSyntax] {
         return [
             """
             static func unlink(id: String, _ relationship: String, from ids: [String]) -> TransactionChunk {
                 TransactionChunk(
-                    namespace: "\(raw: namespace)",
+                    namespace: namespace,
                     id: id,
-                    ops: [["unlink", "\(raw: namespace)", id, [relationship: ids]]]
+                    ops: [["unlink", namespace, id, [relationship: ids]]]
                 )
             }
             """,
@@ -309,9 +326,9 @@ public struct InstantEntityMacro: MemberMacro, ExtensionMacro {
         conformingTo protocols: [TypeSyntax],
         in context: some MacroExpansionContext
     ) throws -> [ExtensionDeclSyntax] {
-        // Create extension that conforms to InstantEntity, Identifiable, and Codable
+        // Create extension that conforms to InstantEntity, InstantEntitySchema, Identifiable, and Codable
         let extensionDecl: DeclSyntax = """
-        extension \(type.trimmed): InstantEntity, Identifiable, Codable {}
+        extension \(type.trimmed): InstantEntity, InstantEntitySchema, Identifiable, Codable {}
         """
 
         guard let extensionDeclSyntax = extensionDecl.as(ExtensionDeclSyntax.self) else {
@@ -333,5 +350,21 @@ enum MacroError: Error, CustomStringConvertible {
         case .notAStruct:
             return "@InstantEntity can only be applied to structs"
         }
+    }
+}
+
+func mapSwiftTypeToInstantType(_ swiftType: String) -> String {
+    switch swiftType {
+    case "String":
+        return "string"
+    case "Int", "Double", "Float", "Int8", "Int16", "Int32", "Int64",
+         "UInt", "UInt8", "UInt16", "UInt32", "UInt64", "CGFloat":
+        return "number"
+    case "Bool":
+        return "boolean"
+    case "Date":
+        return "date"
+    default:
+        return "json"
     }
 }
