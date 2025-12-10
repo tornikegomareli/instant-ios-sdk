@@ -23,7 +23,7 @@ public struct SchemaSerializer {
       for attr in entity.attributes {
         attrs[attr.name] = attributeToDictionary(attr)
       }
-      entities[entity.name] = attrs
+      entities[entity.name] = ["attrs": attrs]
     }
 
     var links: [String: Any] = [:]
@@ -38,26 +38,18 @@ public struct SchemaSerializer {
   }
 
   private static func attributeToDictionary(_ attr: SchemaAttribute) -> [String: Any] {
-    var dict: [String: Any] = [
-      "valueType": attr.dataType.rawValue
+    var config: [String: Any] = [
+      "indexed": attr.isIndexed,
+      "unique": attr.isUnique
     ]
 
-    if attr.isIndexed {
-      dict["indexed"] = true
-    }
+    var dict: [String: Any] = [
+      "valueType": attr.dataType.rawValue,
+      "config": config
+    ]
 
-    if attr.isUnique {
-      dict["unique"] = true
-    }
-
-    if attr.isOptional {
-      dict["optional"] = true
-    } else {
+    if !attr.isOptional {
       dict["required"] = true
-    }
-
-    if attr.dataType != .any {
-      dict["checkedDataType"] = attr.dataType.rawValue
     }
 
     return dict

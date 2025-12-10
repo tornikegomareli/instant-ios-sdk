@@ -56,6 +56,19 @@ public struct InstantSchemaBuilder {
     .link(expression)
   }
 
+  public static func buildExpression<E: InstantEntitySchema>(_ expression: TypedEntity<E>) -> InstantSchemaComponent {
+    .entity(expression.toSchemaEntity())
+  }
+
+  public static func buildExpression<From: InstantEntitySchema, To: InstantEntitySchema>(
+    _ expression: TypedLinkBuilder<From, To>
+  ) -> InstantSchemaComponent {
+    if let link = expression.build() {
+      return .link(link)
+    }
+    fatalError("Invalid typed link builder - missing reverse endpoint. Use .to(EntityType.self, label)")
+  }
+
   public static func buildArray(_ components: [InstantSchemaComponent]) -> InstantSchemaContent {
     var content = InstantSchemaContent()
     for component in components {

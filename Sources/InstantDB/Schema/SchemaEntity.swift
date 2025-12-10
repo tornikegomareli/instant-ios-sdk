@@ -17,8 +17,8 @@ public struct SchemaEntity: Sendable {
 
 @resultBuilder
 public struct SchemaAttributeBuilder {
-  public static func buildBlock(_ components: SchemaAttribute...) -> [SchemaAttribute] {
-    Array(components)
+  public static func buildBlock(_ components: [SchemaAttribute]...) -> [SchemaAttribute] {
+    components.flatMap { $0 }
   }
 
   public static func buildArray(_ components: [[SchemaAttribute]]) -> [SchemaAttribute] {

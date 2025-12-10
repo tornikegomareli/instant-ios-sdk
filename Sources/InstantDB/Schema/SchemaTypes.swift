@@ -9,11 +9,6 @@ public enum InstantDataType: String, Codable, Sendable {
   case any
 }
 
-public enum Cardinality: String, Codable, Sendable {
-  case one
-  case many
-}
-
 public enum OnDeleteAction: String, Codable, Sendable {
   case cascade
 }
