@@ -41,6 +41,6 @@ import Foundation
 ///     Goal.delete(id: oldGoalId)
 /// }
 /// ```
-@attached(member, names: named(namespace), named(create), named(update), named(merge), named(delete), named(link), named(unlink))
-@attached(extension, conformances: InstantEntity, Identifiable, Codable)
+@attached(member, names: named(namespace), named(schemaAttributes), named(create), named(update), named(merge), named(delete), named(link), named(unlink))
+@attached(extension, conformances: InstantEntity, InstantEntitySchema, Identifiable, Codable)
 public macro InstantEntity(_ namespace: String) = #externalMacro(module: "InstantDBMacros", type: "InstantEntityMacro")

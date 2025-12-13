@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2.0
+// swift-tools-version: 5.9
 import PackageDescription
 import CompilerPluginSupport
 
@@ -13,14 +13,18 @@ let package = Package(
       name: "InstantDB",
       targets: ["InstantDB"]
     ),
+    .plugin(
+      name: "GenerateSchemaPlugin",
+      targets: ["GenerateSchemaPlugin"]
+    ),
   ],
   dependencies: [
     .package(url: "https://github.com/google/GoogleSignIn-iOS", from: "9.0.0"),
     .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
-    .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.3.2")
+    .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.3.2"),
+    .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0")
   ],
   targets: [
-    // Macro implementation (compiler plugin)
     .macro(
       name: "InstantDBMacros",
       dependencies: [
@@ -30,8 +34,6 @@ let package = Package(
         .product(name: "SwiftCompilerPlugin", package: "swift-syntax")
       ]
     ),
-    
-    // Main library
     .target(
       name: "InstantDB",
       dependencies: [
@@ -41,21 +43,42 @@ let package = Package(
       ],
       path: "Sources/InstantDB"
     ),
-    
-    // Main tests
     .testTarget(
       name: "InstantDBTests",
       dependencies: ["InstantDB"],
       path: "Tests/InstantDBTests"
     ),
-    
-    // Macro tests
     .testTarget(
       name: "InstantDBMacrosTests",
       dependencies: [
         "InstantDBMacros",
         .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax")
       ]
+    ),
+    .executableTarget(
+      name: "instant-schema",
+      dependencies: [
+        "InstantDB",
+        .product(name: "ArgumentParser", package: "swift-argument-parser")
+      ],
+      path: "Sources/InstantSchemaCLI"
+    ),
+    .executableTarget(
+      name: "InstantSchemaGenerator",
+      dependencies: [
+        .product(name: "SwiftSyntax", package: "swift-syntax"),
+        .product(name: "SwiftParser", package: "swift-syntax")
+      ],
+      path: "Sources/InstantSchemaGenerator"
+    ),
+    .plugin(
+      name: "GenerateSchemaPlugin",
+      capability: .command(
+        intent: .custom(verb: "generate-schema", description: "Generate instant.schema.json from Swift schema"),
+        permissions: [.writeToPackageDirectory(reason: "To write instant.schema.json")]
+      ),
+      dependencies: ["InstantSchemaGenerator"],
+      path: "Plugins/GenerateSchemaPlugin"
     )
   ]
 )
