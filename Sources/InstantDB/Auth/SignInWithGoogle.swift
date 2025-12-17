@@ -1,3 +1,6 @@
+// GoogleSignIn is only available on iOS and macOS
+#if os(iOS) || os(macOS)
+
 import Foundation
 import GoogleSignIn
 
@@ -45,3 +48,5 @@ public final class SignInWithGoogle {
   }
   #endif
 }
+
+#endif

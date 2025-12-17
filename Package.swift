@@ -7,6 +7,8 @@ let package = Package(
   platforms: [
     .iOS(.v15),
     .macOS(.v10_15),
+    .tvOS(.v15),
+    .watchOS(.v8),
   ],
   products: [
     .library(
@@ -39,7 +41,7 @@ let package = Package(
       name: "InstantDB",
       dependencies: [
         "InstantDBMacros",
-        .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS"),
+        .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS", condition: .when(platforms: [.iOS, .macOS])),
         .product(name: "ConcurrencyExtras", package: "swift-concurrency-extras"),
         .product(name: "GRDB", package: "GRDB.swift")
       ],
