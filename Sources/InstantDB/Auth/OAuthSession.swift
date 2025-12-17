@@ -5,6 +5,9 @@
 //  Created by Tornike Gomareli on 29.10.25.
 //
 
+// ASWebAuthenticationSession and ASPresentationAnchor are not available on watchOS
+#if !os(watchOS)
+
 import Foundation
 import AuthenticationServices
 
@@ -78,3 +81,5 @@ internal final class OAuthSession: NSObject, ASWebAuthenticationPresentationCont
     ASPresentationAnchor()
   }
 }
+
+#endif
