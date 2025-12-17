@@ -135,7 +135,7 @@ public struct Attribute: Codable, Equatable, Sendable {
 }
 
 /// User information
-public struct User: Codable, Equatable {
+public struct User: Codable, Equatable, Sendable {
   public let id: String
   public let email: String?
   public let refreshToken: String?

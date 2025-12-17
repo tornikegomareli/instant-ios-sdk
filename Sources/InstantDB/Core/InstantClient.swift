@@ -29,6 +29,9 @@ public final class InstantClient: ObservableObject {
 
   /// Query manager
   private let queryManager = QueryManager()
+  
+  /// Presence manager for real-time presence and topics
+  public let presence: PresenceManager
 
   /// Transaction builder for constructing database mutations
   public let tx = TransactionBuilder()
@@ -52,6 +55,10 @@ public final class InstantClient: ObservableObject {
       .replacingOccurrences(of: "ws://", with: "http://")
     self.authManager = AuthManager(appID: appID, baseURL: httpBaseURL)
     
+    // Initialize presence manager and wire up message sending
+    self.presence = PresenceManager()
+    setupPresenceManager()
+    
     setupConnection()
     setupMessageHandlers()
 
@@ -60,6 +67,48 @@ public final class InstantClient: ObservableObject {
     }
 
     connection.connect()
+  }
+  
+  private func setupPresenceManager() {
+    // Wire up the presence manager's send callback to use typed messages
+    presence.sendMessage = { [weak self] eventId, message in
+      guard let self = self else { return }
+      
+      do {
+        guard let op = message["op"] as? String else { return }
+        
+        switch op {
+        case "join-room":
+          let roomId = message["room-id"] as? String ?? ""
+          let data = message["data"] as? [String: Any]
+          let msg = JoinRoomMessage(clientEventId: eventId, roomId: roomId, data: data)
+          try self.connection.send(msg)
+          
+        case "leave-room":
+          let roomId = message["room-id"] as? String ?? ""
+          let msg = LeaveRoomMessage(clientEventId: eventId, roomId: roomId)
+          try self.connection.send(msg)
+          
+        case "set-presence":
+          let roomId = message["room-id"] as? String ?? ""
+          let data = message["data"] as? [String: Any] ?? [:]
+          let msg = SetPresenceMessage(clientEventId: eventId, roomId: roomId, data: data)
+          try self.connection.send(msg)
+          
+        case "client-broadcast":
+          let roomId = message["room-id"] as? String ?? ""
+          let topic = message["topic"] as? String ?? ""
+          let data = message["data"] as? [String: Any] ?? [:]
+          let msg = ClientBroadcastMessage(clientEventId: eventId, roomId: roomId, topic: topic, data: data)
+          try self.connection.send(msg)
+          
+        default:
+          print("[InstantDB] Unknown presence op: \(op)")
+        }
+      } catch {
+        print("[InstantDB] Failed to send presence message: \(error)")
+      }
+    }
   }
   
   private func setupConnection() {
@@ -79,6 +128,8 @@ public final class InstantClient: ObservableObject {
 
     connection.onOpen = { [weak self] in
       self?.sendInitMessage()
+      // Resend room joins on reconnect
+      self?.presence.resendRoomJoins()
     }
 
     // Set up query manager callback for removing queries
@@ -114,6 +165,27 @@ public final class InstantClient: ObservableObject {
 
     messageHandlers["error"] = { [weak self] message in
       self?.handleError(message)
+    }
+    
+    // Presence/Room message handlers
+    messageHandlers["join-room-ok"] = { [weak self] message in
+      self?.handleJoinRoomOk(message)
+    }
+    
+    messageHandlers["refresh-presence"] = { [weak self] message in
+      self?.handleRefreshPresence(message)
+    }
+    
+    messageHandlers["patch-presence"] = { [weak self] message in
+      self?.handlePatchPresence(message)
+    }
+    
+    messageHandlers["server-broadcast"] = { [weak self] message in
+      self?.handleServerBroadcast(message)
+    }
+    
+    messageHandlers["room-error"] = { [weak self] message in
+      self?.handleRoomError(message)
     }
   }
   
@@ -179,6 +251,9 @@ public final class InstantClient: ObservableObject {
     
     Task { @MainActor in
       self.sessionID = sessionId
+      
+      // Update presence manager with session ID
+      self.presence.sessionId = sessionId
       
       if let attrsData = message.data["attrs"]?.value {
         do {
@@ -324,6 +399,65 @@ public final class InstantClient: ObservableObject {
         self.queryManager.handleQueryError(eventId: eventId, error: error)
       }
     }
+  }
+  
+  // MARK: - Presence Message Handlers
+  
+  private func handleJoinRoomOk(_ message: ServerMessage) {
+    guard let roomId = message.data["room-id"]?.value as? String else {
+      print("[InstantDB] join-room-ok missing room-id")
+      return
+    }
+    
+    let sessions = message.data["sessions"]?.value as? [String: Any]
+    presence.handleJoinRoomOk(roomId: roomId, data: sessions)
+    print("[InstantDB] ✓ Joined room: \(roomId)")
+  }
+  
+  private func handleRefreshPresence(_ message: ServerMessage) {
+    guard let roomId = message.data["room-id"]?.value as? String,
+          let sessions = message.data["sessions"]?.value as? [String: Any] else {
+      print("[InstantDB] refresh-presence missing room-id or sessions")
+      return
+    }
+    
+    presence.handleRefreshPresence(roomId: roomId, sessions: sessions)
+    print("[InstantDB] ✓ Presence refreshed for room: \(roomId)")
+  }
+  
+  private func handlePatchPresence(_ message: ServerMessage) {
+    guard let roomId = message.data["room-id"]?.value as? String,
+          let edits = message.data["edits"]?.value as? [[Any]] else {
+      print("[InstantDB] patch-presence missing room-id or edits")
+      return
+    }
+    
+    presence.handlePatchPresence(roomId: roomId, edits: edits)
+    print("[InstantDB] ✓ Presence patched for room: \(roomId)")
+  }
+  
+  private func handleServerBroadcast(_ message: ServerMessage) {
+    guard let roomId = message.data["room-id"]?.value as? String,
+          let topic = message.data["topic"]?.value as? String,
+          let data = message.data["data"]?.value as? [String: Any],
+          let peerId = message.data["peer-id"]?.value as? String else {
+      print("[InstantDB] server-broadcast missing required fields")
+      return
+    }
+    
+    presence.handleServerBroadcast(roomId: roomId, topic: topic, data: data, peerId: peerId)
+    print("[InstantDB] ✓ Broadcast received on topic: \(topic)")
+  }
+  
+  private func handleRoomError(_ message: ServerMessage) {
+    guard let roomId = message.data["room-id"]?.value as? String,
+          let errorMsg = message.data["message"]?.value as? String else {
+      print("[InstantDB] room-error missing room-id or message")
+      return
+    }
+    
+    presence.handleRoomError(roomId: roomId, error: errorMsg)
+    print("[InstantDB] ✗ Room error for \(roomId): \(errorMsg)")
   }
 }
 
