@@ -18,7 +18,11 @@ final class ConnectionTests: XCTestCase {
     client.connect()
     
     try await Task.sleep(nanoseconds: 500_000_000)
-    XCTAssertEqual(client.connectionState, .connected)
+    // Connection should be either connected or authenticated (both indicate success)
+    XCTAssertTrue(
+      client.connectionState == .connected || client.connectionState == .authenticated,
+      "Expected .connected or .authenticated, got \(client.connectionState)"
+    )
   }
   
   func testInvalidAppIDFormat() {
