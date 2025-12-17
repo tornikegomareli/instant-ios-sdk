@@ -77,8 +77,27 @@ extension QueryResult {
     guard !entities.isEmpty else { return [] }
 
     do {
-      let jsonData = try JSONSerialization.data(withJSONObject: entities)
-      return try JSONDecoder().decode([T].self, from: jsonData)
+      // Pre-process entities to convert fractional timestamps to integers
+      // InstantDB stores timestamps as Double (fractional milliseconds) which JSONDecoder
+      // can't handle with .millisecondsSince1970 strategy
+      let processedEntities = entities.map { entity -> [String: Any] in
+        var processed = entity
+        for (key, value) in entity {
+          // Convert Double timestamps to Int (truncate fractional part)
+          // This handles fields like createdAt, updatedAt, etc.
+          if let doubleValue = value as? Double,
+             doubleValue > 1_000_000_000_000 {  // Likely a millisecond timestamp (> year 2001)
+            processed[key] = Int(doubleValue)
+          }
+        }
+        return processed
+      }
+      
+      let jsonData = try JSONSerialization.data(withJSONObject: processedEntities)
+      let decoder = JSONDecoder()
+      // InstantDB stores dates as milliseconds since epoch
+      decoder.dateDecodingStrategy = .millisecondsSince1970
+      return try decoder.decode([T].self, from: jsonData)
     } catch {
       print("[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)")
       return []
@@ -93,6 +112,8 @@ extension QueryResult {
   /// ```swift
   /// let goal: Goal? = result.decodeFirst(Goal.self, from: "goals")
   /// ```
+  ///
+  /// - Note: Uses milliseconds since epoch for date decoding to match InstantDB's format.
   public func decodeFirst<T: Decodable>(_ type: T.Type, from namespace: String) -> T? {
     decode(type, from: namespace).first
   }
