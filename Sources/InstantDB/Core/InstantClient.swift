@@ -187,6 +187,15 @@ public final class InstantClient: ObservableObject {
     messageHandlers["room-error"] = { [weak self] message in
       self?.handleRoomError(message)
     }
+    
+    // Acknowledgment handlers (no action needed, just prevents "Unhandled" warnings)
+    messageHandlers["set-presence-ok"] = { _ in
+      // Acknowledgment that presence was set successfully
+    }
+    
+    messageHandlers["leave-room-ok"] = { _ in
+      // Acknowledgment that room was left successfully
+    }
   }
   
   /// Connect to InstantDB server
@@ -322,38 +331,28 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleAddQueryExists(_ message: ServerMessage) {
-    print("[InstantDB] Query already exists, delivering current data")
+    print("[InstantDB] Query already exists, delivering cached data")
 
-    // Debug: log the full message data
-    if let jsonData = try? JSONSerialization.data(withJSONObject: message.data.mapValues { $0.value }, options: .prettyPrinted),
-       let jsonString = String(data: jsonData, encoding: .utf8) {
-      print("[InstantDB] DEBUG add-query-exists message data:")
-      print(jsonString)
-    }
-
-    // Parse result array
-    guard let resultArray = message.data["result"]?.value as? [[String: Any]] else {
-      print("[InstantDB] Add-query-exists missing result array")
+    // The server sends add-query-exists when a query with the same hash already exists.
+    // This happens when we try to subscribe to the same query twice.
+    // The message contains the query ("q") but NOT the result data.
+    // We need to look up the existing subscription and deliver its cached result.
+    
+    guard let queryDict = message.data["q"]?.value as? [String: Any] else {
+      print("[InstantDB] Add-query-exists missing query ('q')")
       print("[InstantDB] Available keys: \(message.data.keys)")
       return
     }
-
-    // Process datalog-result into InstaQL format
-    let instaqlData = InstaQLProcessor.process(result: resultArray, attributes: attributes)
-
-    // Extract page-info if available
-    let pageInfo = resultArray.first?["data"] as? [String: Any]
-    let pageInfoData = pageInfo?["page-info"] as? [String: Any]
-
+    
     Task { @MainActor in
-      self.queryManager.handleQueryResult(
+      // Find the existing subscription by query hash and deliver its cached result
+      self.queryManager.handleQueryExists(
         eventId: message.clientEventId,
-        result: instaqlData,
-        pageInfo: pageInfoData
+        query: queryDict
       )
     }
 
-    print("[InstantDB] ✓ Query result delivered (existing query)")
+    print("[InstantDB] ✓ Cached query result delivered")
   }
   
   private func handleRemoveQueryOk(_ message: ServerMessage) {
@@ -370,9 +369,23 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleRefreshOk(_ message: ServerMessage) {
+    print("[InstantDB] refresh-ok received, data keys: \(message.data.keys)")
+    
     guard let computations = message.data["computations"]?.value as? [[String: Any]] else {
       print("[InstantDB] Refresh-ok missing computations")
+      // Debug: print all available data
+      for (key, value) in message.data {
+        print("[InstantDB]   \(key): \(type(of: value.value))")
+      }
       return
+    }
+
+    print("[InstantDB] refresh-ok has \(computations.count) computations")
+    for (index, computation) in computations.enumerated() {
+      print("[InstantDB]   computation[\(index)] keys: \(computation.keys)")
+      if let query = computation["instaql-query"] as? [String: Any] {
+        print("[InstantDB]   computation[\(index)] query namespaces: \(query.keys)")
+      }
     }
 
     Task { @MainActor in
@@ -415,36 +428,55 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleRefreshPresence(_ message: ServerMessage) {
-    guard let roomId = message.data["room-id"]?.value as? String,
-          let sessions = message.data["sessions"]?.value as? [String: Any] else {
-      print("[InstantDB] refresh-presence missing room-id or sessions")
+    print("[InstantDB] handleRefreshPresence - raw data keys: \(message.data.keys)")
+    
+    guard let roomId = message.data["room-id"]?.value as? String else {
+      // This can happen when server sends a global refresh before room is joined
+      // It's safe to ignore these messages
+      print("[InstantDB] refresh-presence has no room-id, ignoring (global refresh)")
       return
     }
     
+    guard let sessions = message.data["sessions"]?.value as? [String: Any] else {
+      print("[InstantDB] refresh-presence for room \(roomId) missing sessions")
+      return
+    }
+    
+    print("[InstantDB] refresh-presence for room \(roomId) with \(sessions.count) sessions")
     presence.handleRefreshPresence(roomId: roomId, sessions: sessions)
     print("[InstantDB] ✓ Presence refreshed for room: \(roomId)")
   }
   
   private func handlePatchPresence(_ message: ServerMessage) {
-    guard let roomId = message.data["room-id"]?.value as? String,
-          let edits = message.data["edits"]?.value as? [[Any]] else {
-      print("[InstantDB] patch-presence missing room-id or edits")
+    print("[InstantDB] handlePatchPresence - raw data keys: \(message.data.keys)")
+    
+    guard let roomId = message.data["room-id"]?.value as? String else {
+      print("[InstantDB] patch-presence missing room-id")
       return
     }
     
+    guard let edits = message.data["edits"]?.value as? [[Any]] else {
+      print("[InstantDB] patch-presence for room \(roomId) missing edits, raw edits value: \(String(describing: message.data["edits"]))")
+      return
+    }
+    
+    print("[InstantDB] patch-presence for room \(roomId) with \(edits.count) edits")
     presence.handlePatchPresence(roomId: roomId, edits: edits)
     print("[InstantDB] ✓ Presence patched for room: \(roomId)")
   }
   
   private func handleServerBroadcast(_ message: ServerMessage) {
+    print("[InstantDB] handleServerBroadcast - raw data keys: \(message.data.keys)")
+    
     guard let roomId = message.data["room-id"]?.value as? String,
           let topic = message.data["topic"]?.value as? String,
           let data = message.data["data"]?.value as? [String: Any],
           let peerId = message.data["peer-id"]?.value as? String else {
-      print("[InstantDB] server-broadcast missing required fields")
+      print("[InstantDB] server-broadcast missing required fields, data: \(message.data)")
       return
     }
     
+    print("[InstantDB] server-broadcast for room \(roomId), topic: \(topic), peerId: \(peerId)")
     presence.handleServerBroadcast(roomId: roomId, topic: topic, data: data, peerId: peerId)
     print("[InstantDB] ✓ Broadcast received on topic: \(topic)")
   }
