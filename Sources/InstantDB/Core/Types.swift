@@ -19,7 +19,7 @@ public typealias RoomID = String
 public typealias SessionID = String
 
 /// Value types supported by InstantDB
-public enum ValueType: String, Codable {
+public enum ValueType: String, Codable, Sendable {
   case string
   case number
   case boolean
