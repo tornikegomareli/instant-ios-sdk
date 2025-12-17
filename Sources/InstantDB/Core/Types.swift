@@ -112,7 +112,7 @@ public enum InstantError: Error, LocalizedError {
 }
 
 /// Attribute definition from server
-public struct Attribute: Codable, Equatable {
+public struct Attribute: Codable, Equatable, Sendable {
   public let id: AttributeID
   public let forwardIdentity: [String]
   public let reverseIdentity: [String]?
