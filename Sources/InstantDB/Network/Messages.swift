@@ -95,6 +95,92 @@ public struct TransactMessage: ClientMessage {
   }
 }
 
+// MARK: - Room/Presence Messages
+
+/// Join a room for presence and topics
+public struct JoinRoomMessage: ClientMessage {
+  public let op = "join-room"
+  public let clientEventId: String
+  public let roomId: String
+  public let data: AnyCodable?
+  
+  enum CodingKeys: String, CodingKey {
+    case op
+    case clientEventId = "client-event-id"
+    case roomId = "room-id"
+    case data
+  }
+  
+  public init(clientEventId: String, roomId: String, data: [String: Any]? = nil) {
+    self.clientEventId = clientEventId
+    self.roomId = roomId
+    self.data = data.map { AnyCodable($0) }
+  }
+}
+
+/// Leave a room
+public struct LeaveRoomMessage: ClientMessage {
+  public let op = "leave-room"
+  public let clientEventId: String
+  public let roomId: String
+  
+  enum CodingKeys: String, CodingKey {
+    case op
+    case clientEventId = "client-event-id"
+    case roomId = "room-id"
+  }
+  
+  public init(clientEventId: String, roomId: String) {
+    self.clientEventId = clientEventId
+    self.roomId = roomId
+  }
+}
+
+/// Set presence data in a room
+public struct SetPresenceMessage: ClientMessage {
+  public let op = "set-presence"
+  public let clientEventId: String
+  public let roomId: String
+  public let data: AnyCodable
+  
+  enum CodingKeys: String, CodingKey {
+    case op
+    case clientEventId = "client-event-id"
+    case roomId = "room-id"
+    case data
+  }
+  
+  public init(clientEventId: String, roomId: String, data: [String: Any]) {
+    self.clientEventId = clientEventId
+    self.roomId = roomId
+    self.data = AnyCodable(data)
+  }
+}
+
+/// Broadcast a message to a topic in a room
+public struct ClientBroadcastMessage: ClientMessage {
+  public let op = "client-broadcast"
+  public let clientEventId: String
+  public let roomId: String
+  public let topic: String
+  public let data: AnyCodable
+  
+  enum CodingKeys: String, CodingKey {
+    case op
+    case clientEventId = "client-event-id"
+    case roomId = "room-id"
+    case topic
+    case data
+  }
+  
+  public init(clientEventId: String, roomId: String, topic: String, data: [String: Any]) {
+    self.clientEventId = clientEventId
+    self.roomId = roomId
+    self.topic = topic
+    self.data = AnyCodable(data)
+  }
+}
+
 // MARK: - Server → Client Messages
 
 /// Server message envelope
