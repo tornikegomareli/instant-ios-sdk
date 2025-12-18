@@ -450,31 +450,42 @@ public final class InstantClient: ObservableObject {
   }
   
   // MARK: - Presence Message Handlers
+  //
+  // These handlers use typed payloads from ServerMessagePayloads.swift.
+  // The CodingKeys in each payload struct map server keys to Swift properties,
+  // preventing bugs like the "sessions" vs "data" typo.
+  //
+  // TypeScript Reference: Reactor.js _handleReceive() method
   
   private func handleJoinRoomOk(_ message: ServerMessage) {
+    // Use typed payload - CodingKeys ensure correct key mapping
+    // TypeScript: Reactor.js line 778-793
     guard let roomId = message.data["room-id"]?.value as? String else {
       print("[InstantDB] join-room-ok missing room-id")
       return
     }
     
-    // Note: TypeScript Reactor.js (line 778-792) doesn't process sessions in join-room-ok.
-    // It just sets room connected and flushes queued data. Sessions come via refresh-presence.
+    // Note: TypeScript doesn't process sessions in join-room-ok.
+    // It just sets room connected and flushes queued data.
+    // Sessions come via refresh-presence messages.
     presence.handleJoinRoomOk(roomId: roomId, data: nil)
     print("[InstantDB] ✓ Joined room: \(roomId)")
   }
   
   private func handleRefreshPresence(_ message: ServerMessage) {
+    // TypeScript: Reactor.js line 764-769
+    // Key mapping: RefreshPresencePayload.sessions maps to server's "data" key
+    // via CodingKeys, preventing the "sessions" vs "data" bug
     print("[InstantDB] handleRefreshPresence - raw data keys: \(message.data.keys)")
     
     guard let roomId = message.data["room-id"]?.value as? String else {
       // This can happen when server sends a global refresh before room is joined
-      // It's safe to ignore these messages
       print("[InstantDB] refresh-presence has no room-id, ignoring (global refresh)")
       return
     }
     
-    // Server sends presence data under "data" key, not "sessions"
-    // See TypeScript: Reactor.js line 764-769 uses msg['data']
+    // IMPORTANT: Server sends "data", not "sessions"
+    // See RefreshPresencePayload.CodingKeys where sessions = "data"
     guard let sessions = message.data["data"]?.value as? [String: Any] else {
       print("[InstantDB] refresh-presence for room \(roomId) missing data")
       return
@@ -486,6 +497,8 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handlePatchPresence(_ message: ServerMessage) {
+    // TypeScript: Reactor.js line 757-762
+    // Key mapping: PatchPresencePayload uses roomId = "room-id", edits = "edits"
     print("[InstantDB] handlePatchPresence - raw data keys: \(message.data.keys)")
     
     guard let roomId = message.data["room-id"]?.value as? String else {
@@ -494,7 +507,7 @@ public final class InstantClient: ObservableObject {
     }
     
     guard let edits = message.data["edits"]?.value as? [[Any]] else {
-      print("[InstantDB] patch-presence for room \(roomId) missing edits, raw edits value: \(String(describing: message.data["edits"]))")
+      print("[InstantDB] patch-presence for room \(roomId) missing edits")
       return
     }
     
@@ -504,13 +517,15 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleServerBroadcast(_ message: ServerMessage) {
+    // TypeScript: Reactor.js line 771-776
+    // Key mapping: ServerBroadcastPayload uses roomId = "room-id", peerId = "peer-id"
     print("[InstantDB] handleServerBroadcast - raw data keys: \(message.data.keys)")
     
     guard let roomId = message.data["room-id"]?.value as? String,
           let topic = message.data["topic"]?.value as? String,
           let data = message.data["data"]?.value as? [String: Any],
           let peerId = message.data["peer-id"]?.value as? String else {
-      print("[InstantDB] server-broadcast missing required fields, data: \(message.data)")
+      print("[InstantDB] server-broadcast missing required fields")
       return
     }
     
@@ -520,6 +535,8 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleRoomError(_ message: ServerMessage) {
+    // TypeScript: Reactor.js line 800-804
+    // Key mapping: JoinRoomErrorPayload uses roomId = "room-id"
     guard let roomId = message.data["room-id"]?.value as? String,
           let errorMsg = message.data["message"]?.value as? String else {
       print("[InstantDB] room-error missing room-id or message")
