@@ -50,6 +50,27 @@ public struct TypedQuery<T: InstantEntity> {
     copy.whereClause = predicate.toDict()
     return copy
   }
+  
+  /// Filters query results using a raw where clause dictionary.
+  ///
+  /// This is useful for dynamic queries where the filter is built programmatically.
+  ///
+  /// - Parameter clause: A dictionary representing the where clause in InstantDB format.
+  /// - Returns: A new query with the filter applied.
+  ///
+  /// ## Example
+  /// ```swift
+  /// // Filter by title containing "hello" (case-insensitive)
+  /// query.where(["title": ["$ilike": "%hello%"]])
+  ///
+  /// // Filter by done status
+  /// query.where(["done": false])
+  /// ```
+  public func `where`(_ clause: [String: Any]) -> TypedQuery<T> {
+    var copy = self
+    copy.whereClause = clause
+    return copy
+  }
 
   /// Limits the maximum number of results (offset-based pagination)
   ///

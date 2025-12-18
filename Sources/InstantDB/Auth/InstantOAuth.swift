@@ -6,7 +6,8 @@
 //
 
 // ASWebAuthenticationSession and ASPresentationAnchor are not available on watchOS
-#if !os(watchOS)
+// ASWebAuthenticationPresentationContextProviding and related APIs are not available on tvOS
+#if !os(watchOS) && !os(tvOS)
 
 import Foundation
 import AuthenticationServices

@@ -517,20 +517,25 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleServerBroadcast(_ message: ServerMessage) {
-    // TypeScript: Reactor.js line 771-776
-    // Key mapping: ServerBroadcastPayload uses roomId = "room-id", peerId = "peer-id"
+    // TypeScript: Reactor.js line 771-776, 2393-2402
+    // The server sends: { "room-id", "topic", "data": { "peer-id", "data": <payload> } }
+    // Note: peer-id is INSIDE the data object, not at the top level!
     print("[InstantDB] handleServerBroadcast - raw data keys: \(message.data.keys)")
     
     guard let roomId = message.data["room-id"]?.value as? String,
           let topic = message.data["topic"]?.value as? String,
-          let data = message.data["data"]?.value as? [String: Any],
-          let peerId = message.data["peer-id"]?.value as? String else {
-      print("[InstantDB] server-broadcast missing required fields")
+          let dataWrapper = message.data["data"]?.value as? [String: Any] else {
+      print("[InstantDB] server-broadcast missing room-id, topic, or data")
       return
     }
     
+    // peer-id is inside the data wrapper, along with the actual payload
+    // TypeScript: msg.data['peer-id'] and msg.data.data
+    let peerId = dataWrapper["peer-id"] as? String ?? "unknown"
+    let payload = dataWrapper["data"] as? [String: Any] ?? [:]
+    
     print("[InstantDB] server-broadcast for room \(roomId), topic: \(topic), peerId: \(peerId)")
-    presence.handleServerBroadcast(roomId: roomId, topic: topic, data: data, peerId: peerId)
+    presence.handleServerBroadcast(roomId: roomId, topic: topic, data: payload, peerId: peerId)
     print("[InstantDB] ✓ Broadcast received on topic: \(topic)")
   }
   
