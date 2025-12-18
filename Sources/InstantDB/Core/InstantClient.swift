@@ -457,8 +457,9 @@ public final class InstantClient: ObservableObject {
       return
     }
     
-    let sessions = message.data["sessions"]?.value as? [String: Any]
-    presence.handleJoinRoomOk(roomId: roomId, data: sessions)
+    // Note: TypeScript Reactor.js (line 778-792) doesn't process sessions in join-room-ok.
+    // It just sets room connected and flushes queued data. Sessions come via refresh-presence.
+    presence.handleJoinRoomOk(roomId: roomId, data: nil)
     print("[InstantDB] ✓ Joined room: \(roomId)")
   }
   
@@ -472,8 +473,10 @@ public final class InstantClient: ObservableObject {
       return
     }
     
-    guard let sessions = message.data["sessions"]?.value as? [String: Any] else {
-      print("[InstantDB] refresh-presence for room \(roomId) missing sessions")
+    // Server sends presence data under "data" key, not "sessions"
+    // See TypeScript: Reactor.js line 764-769 uses msg['data']
+    guard let sessions = message.data["data"]?.value as? [String: Any] else {
+      print("[InstantDB] refresh-presence for room \(roomId) missing data")
       return
     }
     
