@@ -78,23 +78,31 @@ public final class PresenceManager: @unchecked Sendable {
     lock.withLock {
       var needsToSendJoin = false
       
+      print("[Presence] joinRoom called for: \(roomId), initialPresence: \(String(describing: initialPresence))")
+      
       if rooms[roomId] == nil {
         needsToSendJoin = true
         rooms[roomId] = RoomState()
+        print("[Presence] Created new room state for: \(roomId)")
       }
       
       if presence[roomId] == nil {
         presence[roomId] = PresenceState()
+        print("[Presence] Created new presence state for: \(roomId)")
       }
       
       // Set initial presence if provided and no previous result
       if let initial = initialPresence, presence[roomId]?.result == nil {
         presence[roomId]?.result = PresenceResult(user: initial, peers: [:])
+        print("[Presence] Set initial presence for \(roomId): \(initial)")
         notifyPresenceSubs(roomId: roomId)
       }
       
       if needsToSendJoin {
+        print("[Presence] Sending join-room for: \(roomId)")
         tryJoinRoom(roomId: roomId, data: initialPresence)
+      } else {
+        print("[Presence] Room \(roomId) already exists, not sending join")
       }
       
       return { [weak self] in
@@ -157,7 +165,12 @@ public final class PresenceManager: @unchecked Sendable {
   ///   - data: The presence data to publish
   public func publishPresence(roomId: String, data: [String: Any]) {
     lock.withLock {
-      guard rooms[roomId] != nil else { return }
+      print("[Presence] publishPresence called for room: \(roomId), data: \(data)")
+      
+      guard rooms[roomId] != nil else {
+        print("[Presence] ✗ Room \(roomId) not found, cannot publish presence")
+        return
+      }
       
       if presence[roomId] == nil {
         presence[roomId] = PresenceState()
@@ -177,8 +190,11 @@ public final class PresenceManager: @unchecked Sendable {
       
       // Only send if connected
       if rooms[roomId]?.isConnected == true {
+        print("[Presence] Room \(roomId) is connected, sending set-presence with: \(currentUser)")
         trySetPresence(roomId: roomId, data: currentUser)
         notifyPresenceSubs(roomId: roomId)
+      } else {
+        print("[Presence] ✗ Room \(roomId) is NOT connected (isConnected=\(rooms[roomId]?.isConnected ?? false)), cannot send presence")
       }
     }
   }
@@ -197,6 +213,8 @@ public final class PresenceManager: @unchecked Sendable {
     initialPresence: [String: Any]? = nil,
     callback: @escaping (PresenceSlice) -> Void
   ) -> () -> Void {
+    print("[Presence] subscribePresence called for room: \(roomId), keys: \(String(describing: keys))")
+    
     let leaveRoom = joinRoom(roomId, initialPresence: initialPresence)
     
     let handler = PresenceHandler(
@@ -210,6 +228,7 @@ public final class PresenceManager: @unchecked Sendable {
         presence[roomId] = PresenceState()
       }
       presence[roomId]?.handlers.append(handler)
+      print("[Presence] Added handler for room \(roomId), total handlers: \(presence[roomId]?.handlers.count ?? 0)")
     }
     
     // Notify immediately with current state
@@ -283,15 +302,20 @@ public final class PresenceManager: @unchecked Sendable {
   /// Handles a join-room-ok message from the server.
   public func handleJoinRoomOk(roomId: String, data: [String: Any]?) {
     lock.withLock {
+      print("[Presence] handleJoinRoomOk for room: \(roomId)")
       rooms[roomId]?.isConnected = true
       rooms[roomId]?.error = nil
       
       if let sessions = data?["sessions"] as? [String: Any] {
+        print("[Presence] join-room-ok has \(sessions.count) sessions")
         setPresencePeers(roomId: roomId, sessions: sessions)
+      } else {
+        print("[Presence] join-room-ok has no sessions data")
       }
       
       // Send any pending presence
       if let userPresence = presence[roomId]?.result?.user {
+        print("[Presence] Sending pending user presence: \(userPresence)")
         trySetPresence(roomId: roomId, data: userPresence)
       }
       
@@ -302,6 +326,10 @@ public final class PresenceManager: @unchecked Sendable {
   /// Handles a refresh-presence message from the server.
   public func handleRefreshPresence(roomId: String, sessions: [String: Any]) {
     lock.withLock {
+      print("[Presence] handleRefreshPresence for room: \(roomId), sessions count: \(sessions.count)")
+      for (sessionId, sessionData) in sessions {
+        print("[Presence]   Session \(sessionId): \(sessionData)")
+      }
       setPresencePeers(roomId: roomId, sessions: sessions)
       notifyPresenceSubs(roomId: roomId)
     }
@@ -310,6 +338,10 @@ public final class PresenceManager: @unchecked Sendable {
   /// Handles a patch-presence message from the server.
   public func handlePatchPresence(roomId: String, edits: [[Any]]) {
     lock.withLock {
+      print("[Presence] handlePatchPresence for room: \(roomId), edits count: \(edits.count)")
+      for edit in edits {
+        print("[Presence]   Edit: \(edit)")
+      }
       patchPresencePeers(roomId: roomId, edits: edits)
       notifyPresenceSubs(roomId: roomId)
     }
@@ -318,9 +350,11 @@ public final class PresenceManager: @unchecked Sendable {
   /// Handles a server-broadcast message from the server.
   public func handleServerBroadcast(roomId: String, topic: String, data: [String: Any], peerId: String) {
     lock.withLock {
+      print("[Presence] handleServerBroadcast for room: \(roomId), topic: \(topic), peerId: \(peerId)")
       let handlers = broadcastSubs[roomId]?[topic] ?? []
       let message = TopicMessage(topic: topic, data: data, peerId: peerId)
       
+      print("[Presence] Broadcasting to \(handlers.count) handlers")
       for handler in handlers {
         handler.callback(message)
       }
@@ -330,6 +364,7 @@ public final class PresenceManager: @unchecked Sendable {
   /// Handles a room error from the server.
   public func handleRoomError(roomId: String, error: String) {
     lock.withLock {
+      print("[Presence] handleRoomError for room: \(roomId), error: \(error)")
       rooms[roomId]?.error = error
       notifyPresenceSubs(roomId: roomId)
     }
@@ -388,15 +423,25 @@ public final class PresenceManager: @unchecked Sendable {
   private func setPresencePeers(roomId: String, sessions: [String: Any]) {
     var peers: [String: [String: Any]] = [:]
     
+    print("[Presence] setPresencePeers for room: \(roomId), my sessionId: \(sessionId ?? "nil")")
+    
     for (sessionId, value) in sessions {
       // Skip our own session
-      if sessionId == self.sessionId { continue }
+      if sessionId == self.sessionId {
+        print("[Presence]   Skipping own session: \(sessionId)")
+        continue
+      }
       
       if let sessionData = value as? [String: Any],
          let data = sessionData["data"] as? [String: Any] {
         peers[sessionId] = data
+        print("[Presence]   Added peer \(sessionId) with data: \(data)")
+      } else {
+        print("[Presence]   Could not parse session data for \(sessionId): \(value)")
       }
     }
+    
+    print("[Presence] Total peers after setPresencePeers: \(peers.count)")
     
     if presence[roomId]?.result == nil {
       presence[roomId]?.result = PresenceResult(user: [:], peers: peers)
@@ -457,20 +502,29 @@ public final class PresenceManager: @unchecked Sendable {
   }
   
   private func notifyPresenceSubs(roomId: String) {
-    guard let handlers = presence[roomId]?.handlers else { return }
+    guard let handlers = presence[roomId]?.handlers else {
+      print("[Presence] notifyPresenceSubs: no handlers for room \(roomId)")
+      return
+    }
+    print("[Presence] notifyPresenceSubs for room \(roomId), notifying \(handlers.count) handlers")
     for handler in handlers {
       notifyPresenceSub(roomId: roomId, handler: handler)
     }
   }
   
   private func notifyPresenceSub(roomId: String, handler: PresenceHandler) {
-    guard let slice = getPresence(roomId: roomId, keys: handler.keys) else { return }
-    
-    // Check if changed
-    if let prev = handler.previousSlice, !hasPresenceChanged(slice, prev) {
+    guard let slice = getPresence(roomId: roomId, keys: handler.keys) else {
+      print("[Presence] notifyPresenceSub: could not get presence slice for room \(roomId)")
       return
     }
     
+    // Check if changed
+    if let prev = handler.previousSlice, !hasPresenceChanged(slice, prev) {
+      print("[Presence] notifyPresenceSub: presence unchanged for room \(roomId), skipping callback")
+      return
+    }
+    
+    print("[Presence] notifyPresenceSub: calling callback for room \(roomId), peers: \(slice.peers.count), user: \(slice.user)")
     handler.previousSlice = slice
     handler.callback(slice)
   }

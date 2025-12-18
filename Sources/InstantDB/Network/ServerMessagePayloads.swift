@@ -267,17 +267,46 @@ public struct PatchPresencePayload: Codable, Sendable {
 ///
 /// Contains a broadcast from another peer on a topic.
 /// TypeScript: Reactor.js line 771-776
+/// Payload for `server-broadcast` message.
+///
+/// The server sends broadcasts with a nested structure:
+/// ```json
+/// {
+///   "room-id": "...",
+///   "topic": "emoji",
+///   "data": {
+///     "peer-id": "session-id-of-sender",
+///     "data": { ... actual payload ... }
+///   }
+/// }
+/// ```
+///
+/// TypeScript: Reactor.js line 771-776, 2393-2402
+/// - `msg['room-id']` - room identifier
+/// - `msg.topic` - topic name
+/// - `msg.data['peer-id']` - sender's session ID (inside data!)
+/// - `msg.data.data` - actual payload (inside data!)
 public struct ServerBroadcastPayload: Codable, Sendable {
   public let roomId: String
   public let topic: String
-  public let data: [String: AnyCodable]
-  public let peerId: String
+  /// The data wrapper containing peer-id and the actual payload
+  public let dataWrapper: BroadcastDataWrapper
   
   enum CodingKeys: String, CodingKey {
     case roomId = "room-id"
     case topic
-    case data
-    case peerId = "peer-id"
+    case dataWrapper = "data"
+  }
+  
+  /// Nested structure inside the "data" field
+  public struct BroadcastDataWrapper: Codable, Sendable {
+    public let peerId: String
+    public let data: [String: AnyCodable]
+    
+    enum CodingKeys: String, CodingKey {
+      case peerId = "peer-id"
+      case data
+    }
   }
 }
 
