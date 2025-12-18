@@ -1,23 +1,58 @@
 import Foundation
 
-/// Manages query subscriptions
+// MARK: - QueryManager
+
+/// Manages query subscriptions and their lifecycle.
+///
+/// ## Overview
+/// QueryManager is the central coordinator for all active query subscriptions in the SDK.
+/// It handles subscription creation, deduplication, result delivery, and cleanup.
+///
+/// ## Architecture
+/// - Subscriptions are deduplicated by query hash (same query = same subscription)
+/// - Multiple callbacks can be attached to a single subscription
+/// - Results are cached and delivered to new subscribers immediately
+/// - Server responses are routed to the correct subscription via eventId mapping
+///
+/// ## Thread Safety
+/// This class is marked `@MainActor` because subscription state must be synchronized
+/// with UI updates. All mutations happen on the main thread.
+///
+/// - TODO: Replace print statements with a proper Logger for configurable log levels
 @MainActor
 final class QueryManager {
 
-  /// Active subscriptions by query hash
+  // MARK: - Properties
+  
+  /// Active subscriptions indexed by query hash.
+  ///
+  /// The hash is computed from the JSON representation of the query,
+  /// ensuring identical queries share a single subscription.
   private var subscriptions: [String: QuerySubscription] = [:]
 
-  /// Map event IDs to query hashes for lookup
+  /// Maps server event IDs to query hashes.
+  ///
+  /// When the server responds to a query, it includes the eventId we sent.
+  /// This map lets us route the response to the correct subscription.
   private var eventIdToHash: [String: String] = [:]
 
-  /// Callback for when a query should be removed from server
+  /// Callback invoked when a subscription is fully unsubscribed.
+  ///
+  /// The InstantClient uses this to send `remove-query` messages to the server,
+  /// freeing server resources for queries we no longer care about.
   var onRemoveQuery: (([String: Any]) -> Void)?
 
-  /// Subscribe to a query
+  // MARK: - Subscription Management
+
+  /// Creates or joins a subscription for the given query.
+  ///
+  /// If a subscription for this exact query already exists, the callback is added
+  /// to the existing subscription and receives cached data immediately (if available).
+  ///
   /// - Parameters:
-  ///   - query: InstaQL query dictionary
+  ///   - query: InstaQL query dictionary (e.g., `["todos": ["$": ["where": ...]]]`)
   ///   - callback: Called when results arrive or update
-  /// - Returns: Unsubscribe function
+  /// - Returns: An unsubscribe function. Call this to remove your callback.
   func subscribe(
     query: [String: Any],
     callback: @escaping QueryCallback
@@ -48,23 +83,51 @@ final class QueryManager {
     }
   }
 
-  /// Get subscription for sending to server
+  /// Retrieves a subscription by its hash.
+  ///
+  /// Used by InstantClient to get the eventId for sending to the server.
   func getSubscription(hash: String) -> QuerySubscription? {
     return subscriptions[hash]
   }
 
-  /// Get all subscriptions that need to be sent to server
+  /// Returns all active subscriptions.
   func getPendingSubscriptions() -> [QuerySubscription] {
     return Array(subscriptions.values)
   }
   
-  /// Get all active queries for resending after reconnection
-  /// Returns tuples of (eventId, query) for each active subscription
+  // MARK: - Reconnection Support
+  
+  /// Returns all active query subscriptions for re-registration with the server.
+  ///
+  /// ## Why This Exists
+  /// When the WebSocket connection drops and reconnects (due to network changes,
+  /// VPN toggling, app backgrounding, etc.), the server loses track of our active
+  /// subscriptions. Without re-sending these queries, the UI would remain stale
+  /// showing the last known data or an error state.
+  ///
+  /// ## Discovery
+  /// This was discovered during testing with corporate VPNs (Zscaler) where SSL
+  /// inspection would cause connection failures. When the VPN was disabled, the
+  /// connection would recover but the UI stayed stuck on "Connection Error" because
+  /// the queries were never re-sent to the new server session.
+  ///
+  /// ## Usage
+  /// Called by `InstantClient.resendActiveQueries()` after receiving `init-ok`.
+  ///
+  /// - Returns: Tuples of (eventId, query) for each active subscription that needs
+  ///   to be re-registered with the server.
   func getActiveQueries() -> [(eventId: String, query: [String: Any])] {
     return subscriptions.values.map { ($0.eventId, $0.query) }
   }
   
-  /// Mark all subscriptions as loading (used during reconnection)
+  /// Transitions all subscriptions to loading state.
+  ///
+  /// ## Why This Exists
+  /// During reconnection, we want the UI to show a loading state rather than
+  /// stale data. This method is called before resending queries so that
+  /// subscribers know fresh data is being fetched.
+  ///
+  /// - Note: Currently unused but available for future reconnection UX improvements.
   func markAllLoading() {
     for (hash, var subscription) in subscriptions {
       subscription.updateResult(.loading)
@@ -72,7 +135,12 @@ final class QueryManager {
     }
   }
 
-  /// Handle add-query-ok response from server
+  // MARK: - Server Response Handlers
+
+  /// Processes a successful query response from the server.
+  ///
+  /// Called when the server sends `add-query-ok` with query results.
+  /// Routes the data to the correct subscription via the eventId.
   func handleQueryResult(eventId: String?, result: [String: Any], pageInfo: [String: Any]?) {
     guard let eventId = eventId,
           let hash = eventIdToHash[eventId],
@@ -85,9 +153,16 @@ final class QueryManager {
     subscriptions[hash] = subscription
   }
   
-  /// Handle add-query-exists response from server
-  /// This happens when we try to subscribe to a query that already exists.
-  /// We need to find the existing subscription and deliver its cached result to the new callback.
+  /// Handles the server's response when a query already exists.
+  ///
+  /// ## Why This Exists
+  /// The server sends `add-query-exists` when we try to subscribe to a query
+  /// that's already registered (e.g., after reconnection with the same eventId).
+  /// We need to map the eventId and deliver any cached data.
+  ///
+  /// - Parameters:
+  ///   - eventId: The eventId from our subscription request
+  ///   - query: The query that already exists on the server
   func handleQueryExists(eventId: String?, query: [String: Any]) {
     guard let eventId = eventId else {
       print("[QueryManager] handleQueryExists: missing eventId")
@@ -115,7 +190,16 @@ final class QueryManager {
     }
   }
 
-  /// Handle refresh-ok response (real-time update)
+  /// Processes real-time updates from the server.
+  ///
+  /// ## How Real-Time Updates Work
+  /// When data changes on the server (from any client), the server sends a
+  /// `refresh-ok` message containing updated results for all affected queries.
+  /// Each "computation" in the response contains the query and its new results.
+  ///
+  /// - Parameters:
+  ///   - computations: Array of query/result pairs from the server
+  ///   - attributes: Current schema attributes for result processing
   func handleRefresh(computations: [[String: Any]], attributes: [Attribute]) {
     print("[QueryManager] handleRefresh with \(computations.count) computations, \(subscriptions.count) active subscriptions")
     
@@ -165,7 +249,10 @@ final class QueryManager {
     }
   }
 
-  /// Handle query error
+  /// Handles a query error from the server.
+  ///
+  /// Routes the error to the correct subscription so callbacks can display
+  /// appropriate error UI.
   func handleQueryError(eventId: String?, error: Error) {
     guard let eventId = eventId,
           let hash = eventIdToHash[eventId],
@@ -178,7 +265,12 @@ final class QueryManager {
     subscriptions[hash] = subscription
   }
 
-  /// Unsubscribe from a query
+  // MARK: - Private Helpers
+
+  /// Removes a callback from a subscription.
+  ///
+  /// If no callbacks remain, the subscription is fully removed and the server
+  /// is notified via `onRemoveQuery`.
   private func unsubscribe(hash: String, callback: @escaping QueryCallback) {
     guard var subscription = subscriptions[hash] else {
       return
@@ -205,10 +297,14 @@ final class QueryManager {
     }
   }
 
-  /// Generate a hash for a query (for deduplication)
+  /// Computes a hash for query deduplication.
+  ///
+  /// Identical queries produce identical hashes, allowing multiple subscribers
+  /// to share a single server subscription.
+  ///
+  /// - Note: Uses JSON serialization which may not be stable across platforms.
+  ///   Consider a canonical serialization for production.
   private func hashQuery(_ query: [String: Any]) -> String {
-    // Simple JSON-based hash
-    // In production, you might want a more sophisticated approach
     guard let data = try? JSONSerialization.data(withJSONObject: query),
           let string = String(data: data, encoding: .utf8) else {
       return UUID().uuidString
