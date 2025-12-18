@@ -66,6 +66,7 @@ public enum InstantError: Error, LocalizedError {
   case invalidMessage
   case invalidQuery
   case connectionFailed(Error)
+  case sslTrustFailure(underlyingError: Error)
   case serverError(String, hint: [String: Any]? = nil)
   case timeout
   case decodingError(Error)
@@ -85,6 +86,8 @@ public enum InstantError: Error, LocalizedError {
       return "Invalid query format"
     case .connectionFailed(let error):
       return "Connection failed: \(error.localizedDescription)"
+    case .sslTrustFailure:
+      return "SSL/TLS certificate trust evaluation failed"
     case .serverError(let message, let hint):
       var errorText = message
       if let hint = hint, !hint.isEmpty {
@@ -105,9 +108,99 @@ public enum InstantError: Error, LocalizedError {
     switch self {
     case .serverError:
       return "Check the InstantDB docs: https://www.instantdb.com/docs"
+    case .sslTrustFailure:
+      return """
+        This is likely caused by a corporate VPN/proxy (e.g., Zscaler, Netskope, Cisco AnyConnect) \
+        intercepting SSL/TLS connections.
+
+        Possible solutions:
+        1. Temporarily disable your VPN/proxy software
+        2. Add the VPN's root certificate to your device/simulator trust store
+        3. Contact your IT department to whitelist api.instantdb.com
+
+        For iOS Simulator: Drag the root certificate onto the simulator window, \
+        then go to Settings > General > About > Certificate Trust Settings to enable it.
+        """
     default:
       return nil
     }
+  }
+  
+  /// Returns true if this error is an SSL/TLS trust failure
+  public var isSSLTrustFailure: Bool {
+    switch self {
+    case .sslTrustFailure:
+      return true
+    case .connectionFailed(let error):
+      return Self.isSSLTrustError(error)
+    default:
+      return false
+    }
+  }
+  
+  /// Check if an error is an SSL/TLS trust failure based on error codes
+  /// NSURLErrorDomain codes:
+  /// -1200: NSURLErrorSecureConnectionFailed
+  /// -1201: NSURLErrorServerCertificateHasBadDate
+  /// -1202: NSURLErrorServerCertificateUntrusted
+  /// -1203: NSURLErrorServerCertificateHasUnknownRoot
+  /// -1204: NSURLErrorServerCertificateNotYetValid
+  /// -1205: NSURLErrorClientCertificateRejected
+  /// -1206: NSURLErrorClientCertificateRequired
+  /// -9802: errSSLFatalAlert (kCFStreamErrorDomainSSL)
+  /// -9813: errSSLNoRootCert
+  /// -9814: errSSLUnknownRootCert
+  /// -9843: errSSLXCertChainInvalid
+  public static func isSSLTrustError(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    
+    // Check NSURLErrorDomain SSL-related codes
+    if nsError.domain == NSURLErrorDomain {
+      let sslErrorCodes: Set<Int> = [
+        -1200,  // NSURLErrorSecureConnectionFailed
+        -1201,  // NSURLErrorServerCertificateHasBadDate
+        -1202,  // NSURLErrorServerCertificateUntrusted
+        -1203,  // NSURLErrorServerCertificateHasUnknownRoot
+        -1204,  // NSURLErrorServerCertificateNotYetValid
+        -1205,  // NSURLErrorClientCertificateRejected
+        -1206,  // NSURLErrorClientCertificateRequired
+      ]
+      if sslErrorCodes.contains(nsError.code) {
+        return true
+      }
+    }
+    
+    // Check for underlying SSL errors in kCFStreamErrorDomainSSL
+    // These are typically in the _kCFStreamErrorCodeKey
+    if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+      return isSSLTrustError(underlyingError)
+    }
+    
+    // Check kCFStreamErrorDomainSSL codes directly
+    // Domain 3 is kCFStreamErrorDomainSSL
+    if nsError.domain == "kCFErrorDomainCFNetwork" || nsError.domain == "NSOSStatusErrorDomain" {
+      let sslStreamErrorCodes: Set<Int> = [
+        -9802,  // errSSLFatalAlert
+        -9813,  // errSSLNoRootCert
+        -9814,  // errSSLUnknownRootCert
+        -9843,  // errSSLXCertChainInvalid
+        -9824,  // errSSLPeerHandshakeFail
+      ]
+      if sslStreamErrorCodes.contains(nsError.code) {
+        return true
+      }
+    }
+    
+    return false
+  }
+  
+  /// Creates an appropriate InstantError from a connection error,
+  /// detecting SSL/TLS trust failures and wrapping them appropriately
+  public static func fromConnectionError(_ error: Error) -> InstantError {
+    if isSSLTrustError(error) {
+      return .sslTrustFailure(underlyingError: error)
+    }
+    return .connectionFailed(error)
   }
 }
 

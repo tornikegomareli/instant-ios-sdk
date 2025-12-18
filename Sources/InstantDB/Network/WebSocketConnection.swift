@@ -26,6 +26,26 @@ public final class WebSocketConnection: NSObject {
   private let jsonEncoder: JSONEncoder
   private let jsonDecoder: JSONDecoder
   
+  // MARK: - Reconnection Properties
+  
+  /// Whether automatic reconnection is enabled
+  public var autoReconnect = true
+  
+  /// Current reconnection delay in seconds
+  private var reconnectDelaySeconds: TimeInterval = 0
+  
+  /// Maximum reconnection delay in seconds
+  private let maxReconnectDelaySeconds: TimeInterval = 10
+  
+  /// Reconnection delay increment in seconds
+  private let reconnectDelayIncrement: TimeInterval = 1
+  
+  /// Active reconnection task
+  private var reconnectTask: Task<Void, Never>?
+  
+  /// Whether the connection was explicitly shut down (don't auto-reconnect)
+  private var isShutdown = false
+  
   /// Initialize WebSocket connection
   /// - Parameters:
   ///   - appID: InstantDB application ID
@@ -56,6 +76,11 @@ public final class WebSocketConnection: NSObject {
   /// Connect to WebSocket server
   public func connect() {
     guard !isActive else { return }
+    
+    // Cancel any pending reconnection
+    reconnectTask?.cancel()
+    reconnectTask = nil
+    isShutdown = false
 
     DispatchQueue.main.async { [weak self] in
       self?.state = .connecting
@@ -74,14 +99,78 @@ public final class WebSocketConnection: NSObject {
   }
   
   /// Disconnect from WebSocket server
-  public func disconnect() {
+  /// - Parameter allowReconnect: If false, prevents automatic reconnection
+  public func disconnect(allowReconnect: Bool = true) {
     guard isActive else { return }
+    
+    if !allowReconnect {
+      isShutdown = true
+    }
+    
+    // Cancel any pending reconnection
+    reconnectTask?.cancel()
+    reconnectTask = nil
 
     isActive = false
     webSocketTask?.cancel(with: .normalClosure, reason: nil)
     webSocketTask = nil
     state = .disconnected
     onClose?()
+  }
+  
+  /// Permanently shut down the connection, preventing any reconnection attempts
+  public func shutdown() {
+    disconnect(allowReconnect: false)
+  }
+  
+  // MARK: - Reconnection Logic
+  
+  /// Schedule a reconnection attempt with exponential backoff
+  private func scheduleReconnect() {
+    guard autoReconnect, !isShutdown else {
+      print("[InstantDB] Reconnection disabled or connection shut down, not reconnecting")
+      return
+    }
+    
+    // Calculate delay with exponential backoff
+    let delay = reconnectDelaySeconds
+    reconnectDelaySeconds = min(
+      reconnectDelaySeconds + reconnectDelayIncrement,
+      maxReconnectDelaySeconds
+    )
+    
+    print("[InstantDB] Scheduling reconnect in \(delay)s (next delay: \(reconnectDelaySeconds)s)")
+    
+    reconnectTask = Task { [weak self] in
+      do {
+        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        guard !Task.isCancelled else { return }
+        
+        await MainActor.run {
+          self?.attemptReconnect()
+        }
+      } catch {
+        // Task was cancelled, that's fine
+      }
+    }
+  }
+  
+  /// Attempt to reconnect
+  @MainActor
+  private func attemptReconnect() {
+    guard !isShutdown else {
+      print("[InstantDB] Connection shut down, aborting reconnect")
+      return
+    }
+    
+    print("[InstantDB] Attempting reconnect...")
+    isActive = false
+    connect()
+  }
+  
+  /// Reset reconnection delay (called on successful connection)
+  private func resetReconnectDelay() {
+    reconnectDelaySeconds = 0
   }
   
   /// Send a client message to the server
@@ -142,8 +231,22 @@ public final class WebSocketConnection: NSObject {
         self.receiveMessage()
         
       case .failure(let error):
-        self.handleError(.connectionFailed(error))
-        self.disconnect()
+        let instantError = InstantError.fromConnectionError(error)
+        self.handleError(instantError)
+        
+        // Don't call disconnect() as it would prevent reconnection
+        // Instead, mark as inactive and clean up
+        self.isActive = false
+        self.webSocketTask?.cancel(with: .abnormalClosure, reason: nil)
+        self.webSocketTask = nil
+        
+        DispatchQueue.main.async { [weak self] in
+          self?.state = .disconnected
+          self?.onClose?()
+          
+          // Schedule reconnection
+          self?.scheduleReconnect()
+        }
       }
     }
   }
@@ -174,6 +277,9 @@ public final class WebSocketConnection: NSObject {
       onMessage?(message)
 
       if message.op == "init-ok" {
+        // Reset reconnection delay on successful authentication
+        resetReconnectDelay()
+        
         DispatchQueue.main.async { [weak self] in
           self?.state = .authenticated
         }
@@ -184,6 +290,24 @@ public final class WebSocketConnection: NSObject {
   }
   
   private func handleError(_ error: InstantError) {
+    // Log SSL/TLS errors with helpful guidance
+    if error.isSSLTrustFailure {
+      print("[InstantDB] ⚠️ SSL/TLS Trust Failure Detected")
+      print("[InstantDB] This is commonly caused by:")
+      print("[InstantDB]   • Corporate VPN/proxy (Zscaler, Netskope, Cisco AnyConnect)")
+      print("[InstantDB]   • SSL inspection/MITM proxy")
+      print("[InstantDB]   • Missing root certificate in simulator/device trust store")
+      print("[InstantDB] ")
+      print("[InstantDB] Solutions:")
+      print("[InstantDB]   1. Disable VPN/proxy temporarily")
+      print("[InstantDB]   2. Add your VPN's root certificate to the device trust store")
+      print("[InstantDB]   3. For iOS Simulator: drag certificate onto simulator,")
+      print("[InstantDB]      then Settings > General > About > Certificate Trust Settings")
+      if let suggestion = error.recoverySuggestion {
+        print("[InstantDB] \(suggestion)")
+      }
+    }
+    
     DispatchQueue.main.async { [weak self] in
       self?.state = .error(error)
     }
@@ -216,8 +340,16 @@ extension WebSocketConnection: URLSessionWebSocketDelegate {
     reason: Data?
   ) {
     DispatchQueue.main.async { [weak self] in
-      self?.state = .disconnected
-      self?.onClose?()
+      guard let self = self else { return }
+      
+      self.isActive = false
+      self.state = .disconnected
+      self.onClose?()
+      
+      // Schedule reconnection unless it was a normal closure
+      if closeCode != .normalClosure {
+        self.scheduleReconnect()
+      }
     }
   }
 }
