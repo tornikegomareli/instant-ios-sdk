@@ -108,7 +108,10 @@ public struct SchemaPlanResponse {
   public let steps: [SchemaPlanStep]
 }
 
-public struct SchemaPlanStep {
+/// Represents a single step in a schema migration plan.
+/// Marked as `@unchecked Sendable` because the `details` dictionary contains
+/// immutable JSON-parsed data that is safe to pass between threads.
+public struct SchemaPlanStep: @unchecked Sendable {
   public let type: String
   public let details: [String: Any]
 
