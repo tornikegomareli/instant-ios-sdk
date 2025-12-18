@@ -295,7 +295,42 @@ public final class InstantClient: ObservableObject {
       if let auth = self.authInfo {
         print("[InstantDB] ✓ Authenticated as: \(auth.user?.email ?? "guest")")
       }
+      
+      // Resend all active queries after reconnection
+      // This ensures data is refreshed after connection recovery
+      self.resendActiveQueries()
     }
+  }
+  
+  /// Resend all active queries to the server
+  /// Called after reconnection to refresh data
+  private func resendActiveQueries() {
+    let activeQueries = queryManager.getActiveQueries()
+    
+    guard !activeQueries.isEmpty else {
+      print("[InstantDB] No active queries to resend")
+      return
+    }
+    
+    print("[InstantDB] ↻ Resending \(activeQueries.count) active queries after reconnection...")
+    
+    for (eventId, query) in activeQueries {
+      let message = AddQueryMessage(
+        clientEventId: eventId,
+        query: query
+      )
+      
+      do {
+        try connection.send(message)
+        if let namespace = query.keys.first {
+          print("[InstantDB]   → Resent query for '\(namespace)'")
+        }
+      } catch {
+        print("[InstantDB]   ✗ Failed to resend query: \(error)")
+      }
+    }
+    
+    print("[InstantDB] ✓ All active queries resent")
   }
   
   private func handleAddQueryOk(_ message: ServerMessage) {
