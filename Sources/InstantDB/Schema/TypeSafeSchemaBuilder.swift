@@ -1,6 +1,10 @@
 import Foundation
 
-public struct TypedEntity<E: InstantEntitySchema>: Sendable {
+/// A type-safe wrapper for entity schema definitions.
+/// Marked as `@unchecked Sendable` because metatypes (`E.Type`) are inherently
+/// immutable and safe to pass between threads, even though Swift 6 doesn't
+/// automatically recognize them as Sendable.
+public struct TypedEntity<E: InstantEntitySchema>: @unchecked Sendable {
     public let entityType: E.Type
     public let attributeConfigs: [TypedAttributeConfig]
 
@@ -67,7 +71,6 @@ public struct TypedAttributeConfig: Sendable {
 }
 
 public func Attr<E: InstantEntitySchema, V>(_ keyPath: KeyPath<E, V>) -> TypedAttributeConfig {
-    let mirror = Mirror(reflecting: keyPath)
     let name = extractPropertyName(from: keyPath) ?? "unknown"
     return TypedAttributeConfig(name: name)
 }
@@ -99,7 +102,10 @@ public struct TypedAttributeBuilder {
     }
 }
 
-public struct TypedLinkBuilder<From: InstantEntitySchema, To: InstantEntitySchema>: Sendable {
+/// A type-safe builder for defining links between entities.
+/// Marked as `@unchecked Sendable` because metatypes (`From.Type`, `To.Type`)
+/// are inherently immutable and safe to pass between threads.
+public struct TypedLinkBuilder<From: InstantEntitySchema, To: InstantEntitySchema>: @unchecked Sendable {
     private let fromType: From.Type
     private let forwardLabel: String
     private var forwardCardinality: Cardinality = .one
