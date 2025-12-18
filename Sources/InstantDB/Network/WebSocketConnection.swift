@@ -188,7 +188,7 @@ public final class WebSocketConnection: NSObject {
       
       webSocketTask?.send(.string(jsonString)) { [weak self] error in
         if let error = error {
-          self?.handleError(.connectionFailed(error))
+          self?.handleError(InstantError.fromConnectionError(error))
         }
       }
     } catch {
@@ -211,7 +211,7 @@ public final class WebSocketConnection: NSObject {
       
       webSocketTask?.send(.string(jsonString)) { [weak self] error in
         if let error = error {
-          self?.handleError(.connectionFailed(error))
+          self?.handleError(InstantError.fromConnectionError(error))
         }
       }
     } catch {
@@ -290,6 +290,9 @@ public final class WebSocketConnection: NSObject {
   }
   
   private func handleError(_ error: InstantError) {
+    // Log the error for debugging
+    print("[InstantDB] Error: \(error.localizedDescription ?? "unknown")")
+    
     // Log SSL/TLS errors with helpful guidance
     if error.isSSLTrustFailure {
       print("[InstantDB]", InstantError.sslTrustFailureConsoleMessage)
