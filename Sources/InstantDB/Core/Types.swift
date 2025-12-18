@@ -303,14 +303,12 @@ extension InstantError {
     FOR iOS SIMULATOR:
       1. Export your VPN's root certificate:
 
-         For Zscaler (run in Terminal):
-         ┌────────────────────────────────────────────────────────────┐
-         │ security find-certificate -c "Zscaler Root CA" -p \\       │
-         │   /Library/Keychains/System.keychain > ~/Desktop/Zscaler.crt│
-         └────────────────────────────────────────────────────────────┘
+         For Zscaler, run this in Terminal:
 
-         For other VPNs, check Keychain Access.app → System keychain
-         → look for your VPN's root certificate → right-click → Export
+           security find-certificate -c "Zscaler Root CA" -p /Library/Keychains/System.keychain > ~/Desktop/Zscaler.crt
+
+         For other VPNs: Open Keychain Access.app → System keychain
+         → find your VPN's root certificate → right-click → Export
 
       2. Drag the .crt file onto the simulator window
       3. In Simulator: Settings → General → VPN & Device Management
