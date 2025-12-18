@@ -57,6 +57,20 @@ final class QueryManager {
   func getPendingSubscriptions() -> [QuerySubscription] {
     return Array(subscriptions.values)
   }
+  
+  /// Get all active queries for resending after reconnection
+  /// Returns tuples of (eventId, query) for each active subscription
+  func getActiveQueries() -> [(eventId: String, query: [String: Any])] {
+    return subscriptions.values.map { ($0.eventId, $0.query) }
+  }
+  
+  /// Mark all subscriptions as loading (used during reconnection)
+  func markAllLoading() {
+    for (hash, var subscription) in subscriptions {
+      subscription.updateResult(.loading)
+      subscriptions[hash] = subscription
+    }
+  }
 
   /// Handle add-query-ok response from server
   func handleQueryResult(eventId: String?, result: [String: Any], pageInfo: [String: Any]?) {
