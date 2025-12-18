@@ -1,5 +1,5 @@
-// GoogleSignIn is only available on iOS and macOS
-#if os(iOS) || os(macOS)
+// GoogleSignIn is only available on iOS and macOS, and only when the package is available
+#if canImport(GoogleSignIn) && (os(iOS) || os(macOS))
 
 import Foundation
 import GoogleSignIn
@@ -49,4 +49,4 @@ public final class SignInWithGoogle {
   #endif
 }
 
-#endif
+#endif // canImport(GoogleSignIn)
