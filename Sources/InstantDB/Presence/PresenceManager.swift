@@ -355,8 +355,16 @@ public final class PresenceManager: @unchecked Sendable {
       let message = TopicMessage(topic: topic, data: data, peerId: peerId)
       
       print("[Presence] Broadcasting to \(handlers.count) handlers")
-      for handler in handlers {
-        handler.callback(message)
+      
+      // Dispatch to main queue to ensure callbacks are called on the main thread.
+      // This is required because:
+      // 1. WebSocket messages arrive on NSURLSession's delegate queue
+      // 2. Callbacks are typically used for UI updates which must be on main thread
+      // 3. Swift concurrency @MainActor isolation requires main thread execution
+      DispatchQueue.main.async {
+        for handler in handlers {
+          handler.callback(message)
+        }
       }
     }
   }
@@ -526,7 +534,15 @@ public final class PresenceManager: @unchecked Sendable {
     
     print("[Presence] notifyPresenceSub: calling callback for room \(roomId), peers: \(slice.peers.count), user: \(slice.user)")
     handler.previousSlice = slice
-    handler.callback(slice)
+    
+    // Dispatch to main queue to ensure callbacks are called on the main thread.
+    // This is required because:
+    // 1. WebSocket messages arrive on NSURLSession's delegate queue
+    // 2. Callbacks are typically used for UI updates which must be on main thread
+    // 3. Swift concurrency @MainActor isolation requires main thread execution
+    DispatchQueue.main.async {
+      handler.callback(slice)
+    }
   }
   
   private func buildPresenceSlice(
