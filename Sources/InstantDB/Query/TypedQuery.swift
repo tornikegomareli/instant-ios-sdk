@@ -178,6 +178,8 @@ public struct TypedQuery<T: InstantEntity> {
   ///
   /// - Parameter linkName: The name of the link field to include
   /// - Returns: A new query with the link inclusion
+  ///
+  /// - Note: Prefer the type-safe `.with(\.linkName)` overload when possible.
   public func with(_ linkName: String) -> TypedQuery<T> {
     var copy = self
     // In InstaQL, nested queries are represented as: { linkName: {} }
@@ -187,15 +189,78 @@ public struct TypedQuery<T: InstantEntity> {
   
   /// Include a linked entity in the query results (type-safe).
   ///
+  /// This is the preferred way to include links as it provides compile-time
+  /// validation that the link field exists on the entity type.
+  ///
   /// ```swift
+  /// // Type-safe: compiler validates that Post has an 'author' property
   /// db.query(Post.self).with(\.author)
+  ///
+  /// // Chain multiple links
+  /// db.query(Post.self).with(\.author).with(\.comments)
   /// ```
   ///
-  /// - Parameter keyPath: KeyPath to the link field
+  /// - Parameter keyPath: KeyPath to the link field (must be an optional property)
   /// - Returns: A new query with the link inclusion
-  public func with<V>(_ keyPath: KeyPath<T, V>) -> TypedQuery<T> {
+  public func with<V>(_ keyPath: KeyPath<T, V?>) -> TypedQuery<T> {
     let fieldName = extractFieldName(from: keyPath)
     return with(fieldName)
+  }
+  
+  /// Include a linked entity array in the query results (type-safe).
+  ///
+  /// Use this for has-many relationships where the link field is an optional array.
+  ///
+  /// ```swift
+  /// // Type-safe: compiler validates that Post has a 'comments' property
+  /// db.query(Post.self).with(\.comments)
+  /// ```
+  ///
+  /// - Parameter keyPath: KeyPath to the link array field
+  /// - Returns: A new query with the link inclusion
+  public func with<V>(_ keyPath: KeyPath<T, [V]?>) -> TypedQuery<T> {
+    let fieldName = extractFieldName(from: keyPath)
+    return with(fieldName)
+  }
+  
+  /// Include multiple linked entities in the query results (type-safe, 2 links).
+  ///
+  /// ```swift
+  /// db.query(Post.self).with(\.author, \.comments)
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - keyPath1: First link field
+  ///   - keyPath2: Second link field
+  /// - Returns: A new query with both link inclusions
+  public func with<V1, V2>(
+    _ keyPath1: KeyPath<T, V1?>,
+    _ keyPath2: KeyPath<T, V2?>
+  ) -> TypedQuery<T> {
+    self.with(keyPath1).with(keyPath2)
+  }
+  
+  /// Include multiple linked entities in the query results (type-safe, 3 links).
+  ///
+  /// ```swift
+  /// db.query(Post.self).with(\.author, \.comments, \.likes)
+  /// ```
+  public func with<V1, V2, V3>(
+    _ keyPath1: KeyPath<T, V1?>,
+    _ keyPath2: KeyPath<T, V2?>,
+    _ keyPath3: KeyPath<T, V3?>
+  ) -> TypedQuery<T> {
+    self.with(keyPath1).with(keyPath2).with(keyPath3)
+  }
+  
+  /// Include multiple linked entities in the query results (type-safe, 4 links).
+  public func with<V1, V2, V3, V4>(
+    _ keyPath1: KeyPath<T, V1?>,
+    _ keyPath2: KeyPath<T, V2?>,
+    _ keyPath3: KeyPath<T, V3?>,
+    _ keyPath4: KeyPath<T, V4?>
+  ) -> TypedQuery<T> {
+    self.with(keyPath1).with(keyPath2).with(keyPath3).with(keyPath4)
   }
   
   /// Include multiple linked entities in the query results.
@@ -206,6 +271,8 @@ public struct TypedQuery<T: InstantEntity> {
   ///
   /// - Parameter linkNames: Set of link field names to include
   /// - Returns: A new query with all link inclusions
+  ///
+  /// - Note: Prefer the type-safe `.with(\.link1, \.link2)` overloads when possible.
   public func including(_ linkNames: Set<String>) -> TypedQuery<T> {
     var copy = self
     for linkName in linkNames {
