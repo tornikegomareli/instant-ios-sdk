@@ -11,6 +11,12 @@ final class TransactionTransformer {
     let unique: Bool
     let indexed: Bool
   }
+  
+  /// Result of looking up an attribute, including whether it was found via reverse identity
+  private struct AttributeLookupResult {
+    let attrId: String
+    let isReverse: Bool
+  }
 
   /// Convert transaction chunks into tx-steps format for the server
   /// - Parameters:
@@ -23,18 +29,28 @@ final class TransactionTransformer {
     var tempAttrs: [String: TempAttribute] = [:]
     var newAttributes: [Attribute] = []
 
-    // Helper to get or create attribute
+    // Helper to get or create attribute (returns just the ID for non-link operations)
     func getOrCreateAttr(entityType: String, label: String) -> String {
+      return getOrCreateAttrWithDirection(entityType: entityType, label: label).attrId
+    }
+    
+    // Helper to get or create attribute with direction info (for link operations)
+    func getOrCreateAttrWithDirection(entityType: String, label: String) -> AttributeLookupResult {
       let key = "\(entityType).\(label)"
 
-      // Check if attribute exists in schema
-      if let existingAttr = findAttribute(entityType: entityType, label: label, attributes: attributes) {
-        return existingAttr.id
+      // Check if attribute exists in schema (forward identity first)
+      if let fwdAttr = findAttributeByForwardIdentity(entityType: entityType, label: label, attributes: attributes) {
+        return AttributeLookupResult(attrId: fwdAttr.id, isReverse: false)
+      }
+      
+      // Check reverse identity (for link attributes)
+      if let revAttr = findAttributeByReverseIdentity(entityType: entityType, label: label, attributes: attributes) {
+        return AttributeLookupResult(attrId: revAttr.id, isReverse: true)
       }
 
       // Check if we already created a temp attribute
       if let tempAttr = tempAttrs[key] {
-        return tempAttr.id
+        return AttributeLookupResult(attrId: tempAttr.id, isReverse: false)
       }
 
       // Create new temp attribute (lowercase to match server format)
@@ -78,13 +94,13 @@ final class TransactionTransformer {
       )
       newAttributes.append(newAttr)
 
-      return attrId
+      return AttributeLookupResult(attrId: attrId, isReverse: false)
     }
 
     // Process all operations
     for chunk in chunks {
       for op in chunk.ops {
-        let steps = try transformOperation(op, getOrCreateAttr: getOrCreateAttr)
+        let steps = try transformOperation(op, getOrCreateAttr: getOrCreateAttr, getOrCreateAttrWithDirection: getOrCreateAttrWithDirection)
         dataSteps.append(contentsOf: steps)
       }
     }
@@ -93,7 +109,11 @@ final class TransactionTransformer {
     return (txSteps: addAttrSteps + dataSteps, newAttributes: newAttributes)
   }
 
-  private static func transformOperation(_ op: [Any], getOrCreateAttr: (String, String) -> String) throws -> [[Any]] {
+  private static func transformOperation(
+    _ op: [Any],
+    getOrCreateAttr: (String, String) -> String,
+    getOrCreateAttrWithDirection: (String, String) -> AttributeLookupResult
+  ) throws -> [[Any]] {
     guard op.count >= 3,
           let action = op[0] as? String,
           let entityType = op[1] as? String,
@@ -112,10 +132,10 @@ final class TransactionTransformer {
       return try expandMerge(entityType: entityType, entityId: entityId, data: op[3], opts: op.count > 4 ? op[4] : nil, getOrCreateAttr: getOrCreateAttr)
 
     case "link":
-      return try expandLink(entityType: entityType, entityId: entityId, links: op[3], getOrCreateAttr: getOrCreateAttr)
+      return try expandLink(entityType: entityType, entityId: entityId, links: op[3], getOrCreateAttrWithDirection: getOrCreateAttrWithDirection)
 
     case "unlink":
-      return try expandUnlink(entityType: entityType, entityId: entityId, links: op[3], getOrCreateAttr: getOrCreateAttr)
+      return try expandUnlink(entityType: entityType, entityId: entityId, links: op[3], getOrCreateAttrWithDirection: getOrCreateAttrWithDirection)
 
     case "delete":
       return [["delete-entity", entityId, entityType]]
@@ -201,7 +221,29 @@ final class TransactionTransformer {
     return steps
   }
 
-  private static func expandLink(entityType: String, entityId: String, links: Any?, getOrCreateAttr: (String, String) -> String) throws -> [[Any]] {
+  /// Expand link operation into add-triple steps
+  ///
+  /// ## Why This Handles Forward vs Reverse Links
+  ///
+  /// In InstantDB, links have two sides defined in the schema:
+  /// - Forward: e.g., `profiles.posts` (Profile has many Posts)
+  /// - Reverse: e.g., `posts.author` (Post has one Profile)
+  ///
+  /// When we do `posts.link({author: profileId})`, we're using the reverse side.
+  /// The attribute is stored as `profiles.posts` with a reverse identity of `posts.author`.
+  ///
+  /// The server expects the triple to be: `[profileId, linkAttrId, postId]` (forward direction)
+  /// But we're calling from the post side: `posts[postId].link({author: profileId})`
+  ///
+  /// So when we find the attribute via reverse identity, we need to swap the IDs:
+  /// - Forward: `["add-triple", entityId, attrId, linkedId]`
+  /// - Reverse: `["add-triple", linkedId, attrId, entityId]`
+  private static func expandLink(
+    entityType: String,
+    entityId: String,
+    links: Any?,
+    getOrCreateAttrWithDirection: (String, String) -> AttributeLookupResult
+  ) throws -> [[Any]] {
     guard let linksDict = links as? [String: Any] else {
       throw InstantError.invalidQuery
     }
@@ -219,16 +261,32 @@ final class TransactionTransformer {
         continue
       }
 
-      let attrId = getOrCreateAttr(entityType, linkName)
+      let lookupResult = getOrCreateAttrWithDirection(entityType, linkName)
       for linkedId in linkIds {
-        steps.append(["add-triple", entityId, attrId, linkedId])
+        if lookupResult.isReverse {
+          // Reverse link: swap entity IDs
+          // e.g., posts.author -> ["add-triple", profileId, attrId, postId]
+          steps.append(["add-triple", linkedId, lookupResult.attrId, entityId])
+        } else {
+          // Forward link: normal order
+          // e.g., profiles.posts -> ["add-triple", profileId, attrId, postId]
+          steps.append(["add-triple", entityId, lookupResult.attrId, linkedId])
+        }
       }
     }
 
     return steps
   }
 
-  private static func expandUnlink(entityType: String, entityId: String, links: Any?, getOrCreateAttr: (String, String) -> String) throws -> [[Any]] {
+  /// Expand unlink operation into retract-triple steps
+  ///
+  /// See `expandLink` for explanation of forward vs reverse link handling.
+  private static func expandUnlink(
+    entityType: String,
+    entityId: String,
+    links: Any?,
+    getOrCreateAttrWithDirection: (String, String) -> AttributeLookupResult
+  ) throws -> [[Any]] {
     guard let linksDict = links as? [String: Any] else {
       throw InstantError.invalidQuery
     }
@@ -246,27 +304,32 @@ final class TransactionTransformer {
         continue
       }
 
-      let attrId = getOrCreateAttr(entityType, linkName)
+      let lookupResult = getOrCreateAttrWithDirection(entityType, linkName)
       for linkedId in linkIds {
-        steps.append(["retract-triple", entityId, attrId, linkedId])
+        if lookupResult.isReverse {
+          // Reverse link: swap entity IDs
+          steps.append(["retract-triple", linkedId, lookupResult.attrId, entityId])
+        } else {
+          // Forward link: normal order
+          steps.append(["retract-triple", entityId, lookupResult.attrId, linkedId])
+        }
       }
     }
 
     return steps
   }
 
-  /// Find attribute by entity type and label (checks both forward and reverse identity)
-  private static func findAttribute(entityType: String, label: String, attributes: [Attribute]) -> Attribute? {
-    // First check forward identity
-    if let fwdAttr = attributes.first(where: { attr in
+  /// Find attribute by forward identity (entity type and label)
+  private static func findAttributeByForwardIdentity(entityType: String, label: String, attributes: [Attribute]) -> Attribute? {
+    return attributes.first { attr in
       attr.forwardIdentity.count >= 3 &&
       attr.forwardIdentity[1] == entityType &&
       attr.forwardIdentity[2] == label
-    }) {
-      return fwdAttr
     }
-    
-    // Then check reverse identity (for link attributes)
+  }
+  
+  /// Find attribute by reverse identity (for link attributes accessed from the "other" side)
+  private static func findAttributeByReverseIdentity(entityType: String, label: String, attributes: [Attribute]) -> Attribute? {
     return attributes.first { attr in
       guard let revIdent = attr.reverseIdentity, revIdent.count >= 3 else { return false }
       return revIdent[1] == entityType && revIdent[2] == label
