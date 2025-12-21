@@ -173,16 +173,29 @@ public final class OptimisticUpdateManager: @unchecked Sendable {
   
   // MARK: - Optimistic Updates
   
-  /// Applies pending mutations on top of a server store.
+  /// Applies pending mutations to a store in place.
   ///
   /// This is the core of optimistic updates: we take the server's state
-  /// and layer our pending changes on top of it.
+  /// and apply our pending changes on top of it.
+  ///
+  /// ## Important
+  ///
+  /// This method **mutates the input store** directly. It does not create
+  /// a copy. The return value is the same store instance for convenience.
+  ///
+  /// This differs from the TypeScript implementation which uses the `mutative`
+  /// library to create immutable copies. For Swift, we chose in-place mutation
+  /// for performance, as creating deep copies of the triple store indexes
+  /// would be expensive.
   ///
   /// - Parameters:
-  ///   - store: The server's triple store
+  ///   - store: The server's triple store (will be mutated)
   ///   - attrsStore: The attribute store
   ///   - processedTxId: The highest transaction ID the server has processed (optional)
-  /// - Returns: A new store with optimistic updates applied
+  /// - Returns: The same store with optimistic updates applied
+  ///
+  /// - SeeAlso: [PR #6 Feedback - applyOptimisticUpdates](https://github.com/tornikegomareli/instant-ios-sdk/blob/feat/local-first-triple-store/docs/PR6-FEEDBACK-ANALYSIS.md#comment-9-misleading-method-name-and-return-value)
+  @discardableResult
   public func applyOptimisticUpdates(
     to store: TripleStore,
     attrsStore: AttrsStore,
@@ -199,7 +212,7 @@ public final class OptimisticUpdateManager: @unchecked Sendable {
           continue
         }
         
-        // Apply the mutation
+        // Apply the mutation (mutates store in place)
         _ = applyTransaction(store: store, attrsStore: attrsStore, txSteps: mutation.txSteps)
       }
       
@@ -209,9 +222,21 @@ public final class OptimisticUpdateManager: @unchecked Sendable {
   
   // MARK: - Serialization
   
-  /// Converts to a dictionary for persistence
-  public func toJSON() -> [String: PendingMutation] {
+  /// Exports all pending mutations as a dictionary.
+  ///
+  /// Use this for persistence or debugging. The dictionary is keyed by event ID.
+  ///
+  /// - SeeAlso: [PR #6 Feedback - toJSON naming](https://github.com/tornikegomareli/instant-ios-sdk/blob/feat/local-first-triple-store/docs/PR6-FEEDBACK-ANALYSIS.md#comment-10-misleading-method-name---tojson)
+  public func asDictionary() -> [String: PendingMutation] {
     lock.withLock { pendingMutations }
+  }
+  
+  /// Converts to a dictionary for persistence.
+  ///
+  /// - Note: Deprecated in favor of `asDictionary()` which better describes the return type.
+  @available(*, deprecated, renamed: "asDictionary", message: "Use asDictionary() instead - this method returns a Swift dictionary, not JSON")
+  public func toJSON() -> [String: PendingMutation] {
+    asDictionary()
   }
   
   /// Loads from a dictionary

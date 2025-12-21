@@ -3,6 +3,9 @@ import Combine
 
 // MARK: - PresenceManager
 
+/// Logger for PresenceManager
+private let logger = CompatibilityLogger(subsystem: "com.instantdb.sdk", category: "Presence")
+
 /// Manages real-time presence for InstantDB rooms.
 ///
 /// Presence allows you to see who else is in a room and share ephemeral state
@@ -78,31 +81,31 @@ public final class PresenceManager: @unchecked Sendable {
     lock.withLock {
       var needsToSendJoin = false
       
-      print("[Presence] joinRoom called for: \(roomId), initialPresence: \(String(describing: initialPresence))")
+      logger.debug("joinRoom called for: \(roomId)")
       
       if rooms[roomId] == nil {
         needsToSendJoin = true
         rooms[roomId] = RoomState()
-        print("[Presence] Created new room state for: \(roomId)")
+        logger.debug("Created new room state for: \(roomId)")
       }
       
       if presence[roomId] == nil {
         presence[roomId] = PresenceState()
-        print("[Presence] Created new presence state for: \(roomId)")
+        logger.debug("Created new presence state for: \(roomId)")
       }
       
       // Set initial presence if provided and no previous result
       if let initial = initialPresence, presence[roomId]?.result == nil {
         presence[roomId]?.result = PresenceResult(user: initial, peers: [:])
-        print("[Presence] Set initial presence for \(roomId): \(initial)")
+        logger.debug("Set initial presence for \(roomId)")
         notifyPresenceSubs(roomId: roomId)
       }
       
       if needsToSendJoin {
-        print("[Presence] Sending join-room for: \(roomId)")
+        logger.debug("Sending join-room for: \(roomId)")
         tryJoinRoom(roomId: roomId, data: initialPresence)
       } else {
-        print("[Presence] Room \(roomId) already exists, not sending join")
+        logger.debug("Room \(roomId) already exists, not sending join")
       }
       
       return { [weak self] in
@@ -165,10 +168,10 @@ public final class PresenceManager: @unchecked Sendable {
   ///   - data: The presence data to publish
   public func publishPresence(roomId: String, data: [String: Any]) {
     lock.withLock {
-      print("[Presence] publishPresence called for room: \(roomId), data: \(data)")
+      logger.debug("publishPresence called for room: \(roomId)")
       
       guard rooms[roomId] != nil else {
-        print("[Presence] ✗ Room \(roomId) not found, cannot publish presence")
+        logger.warning("Room \(roomId) not found, cannot publish presence")
         return
       }
       
@@ -190,11 +193,11 @@ public final class PresenceManager: @unchecked Sendable {
       
       // Only send if connected
       if rooms[roomId]?.isConnected == true {
-        print("[Presence] Room \(roomId) is connected, sending set-presence with: \(currentUser)")
+        logger.debug("Room \(roomId) is connected, sending set-presence")
         trySetPresence(roomId: roomId, data: currentUser)
         notifyPresenceSubs(roomId: roomId)
       } else {
-        print("[Presence] ✗ Room \(roomId) is NOT connected (isConnected=\(rooms[roomId]?.isConnected ?? false)), cannot send presence")
+        logger.debug("Room \(roomId) is NOT connected, cannot send presence")
       }
     }
   }
@@ -213,7 +216,7 @@ public final class PresenceManager: @unchecked Sendable {
     initialPresence: [String: Any]? = nil,
     callback: @escaping (PresenceSlice) -> Void
   ) -> () -> Void {
-    print("[Presence] subscribePresence called for room: \(roomId), keys: \(String(describing: keys))")
+    logger.debug("subscribePresence called for room: \(roomId)")
     
     let leaveRoom = joinRoom(roomId, initialPresence: initialPresence)
     
@@ -228,7 +231,7 @@ public final class PresenceManager: @unchecked Sendable {
         presence[roomId] = PresenceState()
       }
       presence[roomId]?.handlers.append(handler)
-      print("[Presence] Added handler for room \(roomId), total handlers: \(presence[roomId]?.handlers.count ?? 0)")
+      logger.debug("Added handler for room \(roomId), total handlers: \(self.presence[roomId]?.handlers.count ?? 0)")
     }
     
     // Notify immediately with current state
@@ -298,24 +301,31 @@ public final class PresenceManager: @unchecked Sendable {
   }
   
   // MARK: - Server Message Handling
+  //
+  // These methods are called by InstantClient when processing server messages.
+  // They are marked internal (not public) because SDK users should never call them directly.
+  //
+  // - SeeAlso: [PR #6 Feedback - Internal Methods](https://github.com/tornikegomareli/instant-ios-sdk/blob/feat/local-first-triple-store/docs/PR6-FEEDBACK-ANALYSIS.md#4-internal-methods-exposed-as-public)
   
   /// Handles a join-room-ok message from the server.
-  public func handleJoinRoomOk(roomId: String, data: [String: Any]?) {
+  ///
+  /// - Note: This is an internal method called by InstantClient. Do not call directly.
+  func handleJoinRoomOk(roomId: String, data: [String: Any]?) {
     lock.withLock {
-      print("[Presence] handleJoinRoomOk for room: \(roomId)")
+      logger.debug("handleJoinRoomOk for room: \(roomId)")
       rooms[roomId]?.isConnected = true
       rooms[roomId]?.error = nil
       
       if let sessions = data?["sessions"] as? [String: Any] {
-        print("[Presence] join-room-ok has \(sessions.count) sessions")
+        logger.debug("join-room-ok has \(sessions.count) sessions")
         setPresencePeers(roomId: roomId, sessions: sessions)
       } else {
-        print("[Presence] join-room-ok has no sessions data")
+        logger.debug("join-room-ok has no sessions data")
       }
       
       // Send any pending presence
       if let userPresence = presence[roomId]?.result?.user {
-        print("[Presence] Sending pending user presence: \(userPresence)")
+        logger.debug("Sending pending user presence")
         trySetPresence(roomId: roomId, data: userPresence)
       }
       
@@ -324,37 +334,37 @@ public final class PresenceManager: @unchecked Sendable {
   }
   
   /// Handles a refresh-presence message from the server.
-  public func handleRefreshPresence(roomId: String, sessions: [String: Any]) {
+  ///
+  /// - Note: This is an internal method called by InstantClient. Do not call directly.
+  func handleRefreshPresence(roomId: String, sessions: [String: Any]) {
     lock.withLock {
-      print("[Presence] handleRefreshPresence for room: \(roomId), sessions count: \(sessions.count)")
-      for (sessionId, sessionData) in sessions {
-        print("[Presence]   Session \(sessionId): \(sessionData)")
-      }
+      logger.debug("handleRefreshPresence for room: \(roomId), sessions count: \(sessions.count)")
       setPresencePeers(roomId: roomId, sessions: sessions)
       notifyPresenceSubs(roomId: roomId)
     }
   }
   
   /// Handles a patch-presence message from the server.
-  public func handlePatchPresence(roomId: String, edits: [[Any]]) {
+  ///
+  /// - Note: This is an internal method called by InstantClient. Do not call directly.
+  func handlePatchPresence(roomId: String, edits: [[Any]]) {
     lock.withLock {
-      print("[Presence] handlePatchPresence for room: \(roomId), edits count: \(edits.count)")
-      for edit in edits {
-        print("[Presence]   Edit: \(edit)")
-      }
+      logger.debug("handlePatchPresence for room: \(roomId), edits count: \(edits.count)")
       patchPresencePeers(roomId: roomId, edits: edits)
       notifyPresenceSubs(roomId: roomId)
     }
   }
   
   /// Handles a server-broadcast message from the server.
-  public func handleServerBroadcast(roomId: String, topic: String, data: [String: Any], peerId: String) {
+  ///
+  /// - Note: This is an internal method called by InstantClient. Do not call directly.
+  func handleServerBroadcast(roomId: String, topic: String, data: [String: Any], peerId: String) {
     lock.withLock {
-      print("[Presence] handleServerBroadcast for room: \(roomId), topic: \(topic), peerId: \(peerId)")
+      logger.debug("handleServerBroadcast for room: \(roomId), topic: \(topic), peerId: \(peerId)")
       let handlers = broadcastSubs[roomId]?[topic] ?? []
       let message = TopicMessage(topic: topic, data: data, peerId: peerId)
       
-      print("[Presence] Broadcasting to \(handlers.count) handlers")
+      logger.debug("Broadcasting to \(handlers.count) handlers")
       
       // Dispatch to main queue to ensure callbacks are called on the main thread.
       // This is required because:
@@ -370,9 +380,11 @@ public final class PresenceManager: @unchecked Sendable {
   }
   
   /// Handles a room error from the server.
-  public func handleRoomError(roomId: String, error: String) {
+  ///
+  /// - Note: This is an internal method called by InstantClient. Do not call directly.
+  func handleRoomError(roomId: String, error: String) {
     lock.withLock {
-      print("[Presence] handleRoomError for room: \(roomId), error: \(error)")
+      logger.warning("handleRoomError for room: \(roomId), error: \(error)")
       rooms[roomId]?.error = error
       notifyPresenceSubs(roomId: roomId)
     }
@@ -431,25 +443,21 @@ public final class PresenceManager: @unchecked Sendable {
   private func setPresencePeers(roomId: String, sessions: [String: Any]) {
     var peers: [String: [String: Any]] = [:]
     
-    print("[Presence] setPresencePeers for room: \(roomId), my sessionId: \(sessionId ?? "nil")")
+    logger.debug("setPresencePeers for room: \(roomId), my sessionId: \(self.sessionId ?? "nil")")
     
     for (sessionId, value) in sessions {
       // Skip our own session
       if sessionId == self.sessionId {
-        print("[Presence]   Skipping own session: \(sessionId)")
         continue
       }
       
       if let sessionData = value as? [String: Any],
          let data = sessionData["data"] as? [String: Any] {
         peers[sessionId] = data
-        print("[Presence]   Added peer \(sessionId) with data: \(data)")
-      } else {
-        print("[Presence]   Could not parse session data for \(sessionId): \(value)")
       }
     }
     
-    print("[Presence] Total peers after setPresencePeers: \(peers.count)")
+    logger.debug("Total peers after setPresencePeers: \(peers.count)")
     
     if presence[roomId]?.result == nil {
       presence[roomId]?.result = PresenceResult(user: [:], peers: peers)
@@ -511,10 +519,9 @@ public final class PresenceManager: @unchecked Sendable {
   
   private func notifyPresenceSubs(roomId: String) {
     guard let handlers = presence[roomId]?.handlers else {
-      print("[Presence] notifyPresenceSubs: no handlers for room \(roomId)")
       return
     }
-    print("[Presence] notifyPresenceSubs for room \(roomId), notifying \(handlers.count) handlers")
+    logger.debug("notifyPresenceSubs for room \(roomId), notifying \(handlers.count) handlers")
     for handler in handlers {
       notifyPresenceSub(roomId: roomId, handler: handler)
     }
@@ -522,17 +529,15 @@ public final class PresenceManager: @unchecked Sendable {
   
   private func notifyPresenceSub(roomId: String, handler: PresenceHandler) {
     guard let slice = getPresence(roomId: roomId, keys: handler.keys) else {
-      print("[Presence] notifyPresenceSub: could not get presence slice for room \(roomId)")
       return
     }
     
     // Check if changed
     if let prev = handler.previousSlice, !hasPresenceChanged(slice, prev) {
-      print("[Presence] notifyPresenceSub: presence unchanged for room \(roomId), skipping callback")
       return
     }
     
-    print("[Presence] notifyPresenceSub: calling callback for room \(roomId), peers: \(slice.peers.count), user: \(slice.user)")
+    logger.debug("notifyPresenceSub: calling callback for room \(roomId), peers: \(slice.peers.count)")
     handler.previousSlice = slice
     
     // Dispatch to main queue to ensure callbacks are called on the main thread.
@@ -570,12 +575,24 @@ public final class PresenceManager: @unchecked Sendable {
     )
   }
   
+  /// Checks if presence has changed between two slices.
+  ///
+  /// ## Deep Equality
+  ///
+  /// Uses `NSDictionary.isEqual(to:)` for deep comparison of dictionaries.
+  /// This is necessary because `Dictionary.description` is unreliable for equality
+  /// checking - two dictionaries with the same contents can have different string
+  /// representations due to key ordering.
+  ///
+  /// - SeeAlso: [PR #6 Feedback - Dictionary Comparison](https://github.com/tornikegomareli/instant-ios-sdk/blob/feat/local-first-triple-store/docs/PR6-FEEDBACK-ANALYSIS.md#comment-12-unreliable-dictionary-comparison)
+  /// - SeeAlso: TypeScript `hasPresenceResponseChanged` in `instant/client/packages/core/src/presence.ts`
   private func hasPresenceChanged(_ a: PresenceSlice, _ b: PresenceSlice) -> Bool {
-    // Simple comparison - could be optimized
-    return a.user.description != b.user.description ||
-           a.peers.description != b.peers.description ||
-           a.isLoading != b.isLoading ||
-           a.error != b.error
+    // Use NSDictionary for deep equality comparison
+    // This handles nested dictionaries correctly, unlike comparing .description strings
+    let userEqual = NSDictionary(dictionary: a.user).isEqual(to: b.user)
+    let peersEqual = NSDictionary(dictionary: a.peers).isEqual(to: b.peers)
+    
+    return !userEqual || !peersEqual || a.isLoading != b.isLoading || a.error != b.error
   }
 }
 
