@@ -2,6 +2,9 @@ import Foundation
 
 // MARK: - Transaction Step Types
 
+/// Logger for StoreOperations
+private let logger = CompatibilityLogger(subsystem: "com.instantdb.sdk", category: "Store")
+
 /// The types of operations that can be applied to the store.
 ///
 /// These match the wire protocol operations from InstantDB:
@@ -74,7 +77,7 @@ public func applyTransaction(
 ) -> (store: TripleStore, attrsStore: AttrsStore) {
   for stepArray in txSteps {
     guard let step = TxStep(fromArray: stepArray) else {
-      print("[InstantDB] Warning: Invalid tx step: \(stepArray)")
+      logger.warning("Invalid tx step: \(String(describing: stepArray))")
       continue
     }
     applyTxStep(store: store, attrsStore: attrsStore, step: step)
@@ -123,11 +126,19 @@ private func applyAddTriple(store: TripleStore, attrsStore: AttrsStore, args: [A
   let attributeId: String
   
   // Handle lookup refs (entityId can be [attrId, value] for lookups)
+  // See: instant/client/packages/core/src/store.ts resolveLookupRefs()
   if let eid = args[0] as? String {
     entityId = eid
   } else if let lookup = args[0] as? [Any], lookup.count == 2 {
-    // Lookup ref - need to resolve
-    // For now, skip if we can't resolve
+    // Lookup ref - need to resolve the entity ID from an attribute value pair
+    // This is used for operations like: ["add-triple", ["email", "user@example.com"], "attr-name", "value"]
+    // where ["email", "user@example.com"] is a lookup ref that should resolve to an entity ID.
+    //
+    // TODO: Implement lookup ref resolution by searching the AEV index for matching triples.
+    // For now, we skip these triples - they will be applied when the server responds.
+    //
+    // - SeeAlso: [PR #6 Feedback - Lookup Ref Resolution](https://github.com/tornikegomareli/instant-ios-sdk/blob/feat/local-first-triple-store/docs/PR6-FEEDBACK-ANALYSIS.md#comment-13-silent-failure-in-lookup-ref-resolution)
+    logger.warning("Lookup ref resolution not yet implemented, skipping triple with lookup: \(String(describing: lookup))")
     return
   } else {
     return
@@ -174,7 +185,7 @@ private func applyMergeTriple(store: TripleStore, attrsStore: AttrsStore, args: 
   
   let attr = attrsStore.getAttr(attributeId)
   guard attr?.valueType != .ref else {
-    print("[InstantDB] Warning: merge operation is not supported for links")
+    logger.warning("merge operation is not supported for links")
     return
   }
   
@@ -215,7 +226,7 @@ private func applyAddAttr(attrsStore: AttrsStore, args: [Any]) {
     let attr = try JSONDecoder().decode(Attribute.self, from: data)
     attrsStore.addAttr(attr)
   } catch {
-    print("[InstantDB] Warning: Failed to decode attribute: \(error)")
+    logger.error("Failed to decode attribute: \(error.localizedDescription)")
   }
 }
 

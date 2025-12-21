@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 
+/// Logger for WebSocketConnection
+private let logger = CompatibilityLogger(subsystem: "com.instantdb.sdk", category: "WebSocket")
+
 /// WebSocket connection manager for InstantDB
 public final class WebSocketConnection: NSObject {
   private let url: URL
@@ -125,12 +128,24 @@ public final class WebSocketConnection: NSObject {
   
   // MARK: - Reconnection Logic
   
-  /// Schedule a reconnection attempt with exponential backoff
+  /// Schedule a reconnection attempt with exponential backoff.
+  ///
+  /// ## Task Cancellation
+  ///
+  /// If called while a previous reconnection is pending, the previous task
+  /// is cancelled first to prevent multiple simultaneous reconnection attempts.
+  ///
+  /// - SeeAlso: [PR #6 Feedback - Reconnection Task](https://github.com/tornikegomareli/instant-ios-sdk/blob/feat/local-first-triple-store/docs/PR6-FEEDBACK-ANALYSIS.md#comment-11-reconnection-task-not-cancelled)
   private func scheduleReconnect() {
     guard autoReconnect, !isShutdown else {
-      print("[InstantDB] Reconnection disabled or connection shut down, not reconnecting")
+      logger.info("Reconnection disabled or connection shut down, not reconnecting")
       return
     }
+    
+    // Cancel any existing reconnection attempt to prevent multiple simultaneous reconnects
+    // This fixes a bug where calling scheduleReconnect() twice rapidly would result in
+    // two reconnection attempts happening in parallel.
+    reconnectTask?.cancel()
     
     // Calculate delay with exponential backoff
     let delay = reconnectDelaySeconds
@@ -139,7 +154,7 @@ public final class WebSocketConnection: NSObject {
       maxReconnectDelaySeconds
     )
     
-    print("[InstantDB] Scheduling reconnect in \(delay)s (next delay: \(reconnectDelaySeconds)s)")
+    logger.info("Scheduling reconnect in \(delay)s (next delay: \(self.reconnectDelaySeconds)s)")
     
     reconnectTask = Task { [weak self] in
       do {
@@ -159,11 +174,11 @@ public final class WebSocketConnection: NSObject {
   @MainActor
   private func attemptReconnect() {
     guard !isShutdown else {
-      print("[InstantDB] Connection shut down, aborting reconnect")
+      logger.info("Connection shut down, aborting reconnect")
       return
     }
     
-    print("[InstantDB] Attempting reconnect...")
+    logger.info("Attempting reconnect...")
     isActive = false
     connect()
   }
@@ -291,11 +306,11 @@ public final class WebSocketConnection: NSObject {
   
   private func handleError(_ error: InstantError) {
     // Log the error for debugging
-    print("[InstantDB] Error: \(error.localizedDescription ?? "unknown")")
+    logger.error("Error: \(error.localizedDescription ?? "unknown")")
     
     // Log SSL/TLS errors with helpful guidance
     if error.isSSLTrustFailure {
-      print("[InstantDB]", InstantError.sslTrustFailureConsoleMessage)
+      logger.error("\(InstantError.sslTrustFailureConsoleMessage)")
     }
     
     DispatchQueue.main.async { [weak self] in
