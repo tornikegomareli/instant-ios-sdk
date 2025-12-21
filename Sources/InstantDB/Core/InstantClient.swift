@@ -347,18 +347,13 @@ public final class InstantClient: ObservableObject {
       return
     }
 
-    // Process datalog-result into InstaQL format
-    let instaqlData = InstaQLProcessor.process(result: resultArray, attributes: attributes)
-
-    // Extract page-info if available
-    let pageInfo = resultArray.first?["data"] as? [String: Any]
-    let pageInfoData = pageInfo?["page-info"] as? [String: Any]
-
+    // Let QueryManager process the result with client-side sorting
+    // (QueryManager has access to the subscription's query which contains the order)
     Task { @MainActor in
       self.queryManager.handleQueryResult(
         eventId: message.clientEventId,
-        result: instaqlData,
-        pageInfo: pageInfoData
+        rawResult: resultArray,
+        attributes: self.attributes
       )
     }
 

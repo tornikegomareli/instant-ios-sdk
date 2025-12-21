@@ -45,14 +45,30 @@ import Foundation
 ///   }]
 /// }
 /// ```
+/// Specifies how to order query results
+struct QueryOrder {
+  let field: String
+  let direction: OrderDirection
+  
+  enum OrderDirection {
+    case asc
+    case desc
+  }
+}
+
 struct InstaQLProcessor {
   
   /// Process datalog-result into InstaQL format
   /// - Parameters:
   ///   - result: Raw result array from server
   ///   - attributes: Schema attributes
+  ///   - order: Optional ordering to apply (client-side sort)
   /// - Returns: Processed InstaQL data
-  static func process(result: [[String: Any]], attributes: [Attribute]) -> [String: Any] {
+  static func process(
+    result: [[String: Any]],
+    attributes: [Attribute],
+    order: QueryOrder? = nil
+  ) -> [String: Any] {
     var triples: [[Any]] = []
     for item in result {
       guard let data = item["data"] as? [String: Any],
@@ -77,11 +93,6 @@ struct InstaQLProcessor {
     // Also track ref attributes for second pass
     var entities: [String: [String: [String: Any]]] = [:]
     // namespace -> entityId -> attributes
-    
-    // Track entity order per namespace to preserve server ordering
-    // The server returns entities in the correct order based on orderBy clause
-    var entityOrder: [String: [String]] = [:]
-    // namespace -> [entityId1, entityId2, ...] in order of first appearance
     
     // Track ref relationships for BOTH directions
     // Forward: (parentNamespace, parentId, linkLabel, linkedId, linkedNamespace)
@@ -121,16 +132,11 @@ struct InstaQLProcessor {
       // Initialize namespace if needed
       if entities[namespace] == nil {
         entities[namespace] = [:]
-        entityOrder[namespace] = []
       }
       
-      // Initialize entity if needed, tracking order of first appearance
+      // Initialize entity if needed
       if entities[namespace]?[entityId] == nil {
         entities[namespace]?[entityId] = ["id": entityId]
-        // Track order - only add if not already present
-        if !(entityOrder[namespace]?.contains(entityId) ?? false) {
-          entityOrder[namespace]?.append(entityId)
-        }
       }
       
       // Handle ref attributes (links) specially
@@ -224,17 +230,39 @@ struct InstaQLProcessor {
     }
     
     // Convert to InstaQL format: {namespace: [entity1, entity2, ...]}
-    // Use entityOrder to preserve the server's ordering (important for orderBy queries)
+    // Apply client-side sorting if order is specified (like TypeScript client does)
     var instaqlData: [String: Any] = [:]
     for (namespace, entitiesById) in entities {
-      // Get entities in the order they first appeared (server's order)
-      if let orderedIds = entityOrder[namespace] {
-        let orderedEntities = orderedIds.compactMap { entitiesById[$0] }
-        instaqlData[namespace] = orderedEntities
-      } else {
-        // Fallback to unordered if no order tracking (shouldn't happen)
-        instaqlData[namespace] = Array(entitiesById.values)
+      var entityArray = Array(entitiesById.values)
+      
+      // Apply client-side sorting if order is specified
+      // This matches the TypeScript client behavior in instaql.ts lines 723-730
+      if let order = order {
+        entityArray.sort { a, b in
+          let aValue = a[order.field]
+          let bValue = b[order.field]
+          
+          // Handle comparison based on value types
+          let comparison: Int
+          if let aNum = aValue as? Double, let bNum = bValue as? Double {
+            comparison = aNum < bNum ? -1 : (aNum > bNum ? 1 : 0)
+          } else if let aStr = aValue as? String, let bStr = bValue as? String {
+            comparison = aStr.compare(bStr).rawValue
+          } else if let aInt = aValue as? Int, let bInt = bValue as? Int {
+            comparison = aInt < bInt ? -1 : (aInt > bInt ? 1 : 0)
+          } else {
+            // Fallback: compare string representations
+            let aDesc = String(describing: aValue ?? "")
+            let bDesc = String(describing: bValue ?? "")
+            comparison = aDesc.compare(bDesc).rawValue
+          }
+          
+          // Apply direction
+          return order.direction == .asc ? comparison < 0 : comparison > 0
+        }
       }
+      
+      instaqlData[namespace] = entityArray
     }
     
     return instaqlData

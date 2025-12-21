@@ -141,14 +141,29 @@ final class QueryManager {
   ///
   /// Called when the server sends `add-query-ok` with query results.
   /// Routes the data to the correct subscription via the eventId.
-  func handleQueryResult(eventId: String?, result: [String: Any], pageInfo: [String: Any]?) {
+  ///
+  /// - Parameters:
+  ///   - eventId: The event ID from the server response
+  ///   - rawResult: The raw result array from the server (before InstaQL processing)
+  ///   - attributes: Schema attributes for processing
+  func handleQueryResult(eventId: String?, rawResult: [[String: Any]], attributes: [Attribute]) {
     guard let eventId = eventId,
           let hash = eventIdToHash[eventId],
           var subscription = subscriptions[hash] else {
       return
     }
+    
+    // Extract order from the query for client-side sorting
+    let order = extractOrder(from: subscription.query)
+    
+    // Process datalog-result into InstaQL format with client-side sorting
+    let instaqlData = InstaQLProcessor.process(result: rawResult, attributes: attributes, order: order)
+    
+    // Extract page-info if available
+    let pageInfo = rawResult.first?["data"] as? [String: Any]
+    let pageInfoData = pageInfo?["page-info"] as? [String: Any]
 
-    let queryResult = QueryResult.success(data: result, pageInfo: pageInfo)
+    let queryResult = QueryResult.success(data: instaqlData, pageInfo: pageInfoData)
     subscription.updateResult(queryResult)
     subscriptions[hash] = subscription
   }
@@ -236,8 +251,11 @@ final class QueryManager {
 
       print("[QueryManager] ✓ Found subscription, processing \(resultArray.count) results")
       
-      // Process datalog-result into InstaQL format
-      let instaqlData = InstaQLProcessor.process(result: resultArray, attributes: attributes)
+      // Extract order from the query for client-side sorting
+      let order = extractOrder(from: subscription.query)
+      
+      // Process datalog-result into InstaQL format with client-side sorting
+      let instaqlData = InstaQLProcessor.process(result: resultArray, attributes: attributes, order: order)
 
       // Extract page-info if available
       let pageInfo = resultArray.first?["data"] as? [String: Any]
@@ -336,5 +354,25 @@ final class QueryManager {
     } else {
       return value
     }
+  }
+  
+  /// Extracts the order specification from an InstaQL query.
+  ///
+  /// Query format: `["namespace": ["$": ["order": ["fieldName": "asc|desc"]]]]`
+  ///
+  /// - Parameter query: The InstaQL query dictionary
+  /// - Returns: QueryOrder if order is specified, nil otherwise
+  private func extractOrder(from query: [String: Any]) -> QueryOrder? {
+    // Get the first namespace (e.g., "posts")
+    guard let (_, namespaceValue) = query.first,
+          let namespaceDict = namespaceValue as? [String: Any],
+          let modifiers = namespaceDict["$"] as? [String: Any],
+          let orderDict = modifiers["order"] as? [String: String],
+          let (field, directionStr) = orderDict.first else {
+      return nil
+    }
+    
+    let direction: QueryOrder.OrderDirection = directionStr == "asc" ? .asc : .desc
+    return QueryOrder(field: field, direction: direction)
   }
 }
