@@ -680,3 +680,195 @@ extension PresenceSlice: CustomStringConvertible {
   }
 }
 
+// MARK: - Type-Safe Presence API
+
+extension PresenceManager {
+  /// Publishes type-safe presence data to a room.
+  ///
+  /// This is the generic equivalent of `publishPresence(roomId:data:)`,
+  /// providing compile-time type safety for presence data.
+  ///
+  /// ## Example
+  ///
+  /// ```swift
+  /// struct CursorPresence: PresenceData {
+  ///   var x: Double
+  ///   var y: Double
+  ///   var name: String
+  /// }
+  ///
+  /// presence.publishTypedPresence(
+  ///   roomId: "document-123",
+  ///   data: CursorPresence(x: 100, y: 200, name: "Alice")
+  /// )
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - roomId: The room identifier.
+  ///   - data: The type-safe presence data.
+  public func publishTypedPresence<T: PresenceData>(
+    roomId: String,
+    data: T
+  ) {
+    let dict = encodePresenceData(data)
+    publishPresence(roomId: roomId, data: dict)
+  }
+  
+  /// Subscribes to type-safe presence changes in a room.
+  ///
+  /// This is the generic equivalent of `subscribePresence(roomId:keys:initialPresence:callback:)`,
+  /// providing compile-time type safety for presence data.
+  ///
+  /// ## Example
+  ///
+  /// ```swift
+  /// struct CursorPresence: PresenceData {
+  ///   var x: Double
+  ///   var y: Double
+  ///   var name: String
+  /// }
+  ///
+  /// let unsub = presence.subscribeTypedPresence(
+  ///   roomId: "document-123",
+  ///   initialPresence: CursorPresence(x: 0, y: 0, name: "Alice")
+  /// ) { slice in
+  ///   // Type-safe access!
+  ///   print("My position: (\(slice.user.x), \(slice.user.y))")
+  ///   for peer in slice.peers {
+  ///     print("\(peer.data.name) at (\(peer.data.x), \(peer.data.y))")
+  ///   }
+  /// }
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - roomId: The room identifier.
+  ///   - keys: Optional keys to filter peers by.
+  ///   - initialPresence: The initial presence data (also used as fallback for decoding).
+  ///   - callback: Called when presence changes with type-safe data.
+  /// - Returns: Unsubscribe function.
+  public func subscribeTypedPresence<T: PresenceData>(
+    roomId: String,
+    keys: [String]? = nil,
+    initialPresence: T,
+    callback: @escaping (TypedPresenceSlice<T>) -> Void
+  ) -> () -> Void {
+    let initialDict = encodePresenceData(initialPresence)
+    
+    return subscribePresence(
+      roomId: roomId,
+      keys: keys,
+      initialPresence: initialDict
+    ) { slice in
+      let typedSlice = TypedPresenceSlice.from(slice, fallbackUser: initialPresence)
+      callback(typedSlice)
+    }
+  }
+  
+  /// Gets the current type-safe presence for a room.
+  ///
+  /// This is the generic equivalent of `getPresence(roomId:keys:)`,
+  /// providing compile-time type safety for presence data.
+  ///
+  /// - Parameters:
+  ///   - roomId: The room identifier.
+  ///   - keys: Optional keys to filter peers by.
+  ///   - fallbackUser: The fallback value if user data can't be decoded.
+  /// - Returns: The typed presence slice, or nil if not in room.
+  public func getTypedPresence<T: PresenceData>(
+    roomId: String,
+    keys: [String]? = nil,
+    fallbackUser: T
+  ) -> TypedPresenceSlice<T>? {
+    guard let slice = getPresence(roomId: roomId, keys: keys) else {
+      return nil
+    }
+    return TypedPresenceSlice.from(slice, fallbackUser: fallbackUser)
+  }
+  
+  /// Publishes a type-safe message to a topic in a room.
+  ///
+  /// This is the generic equivalent of `publishTopic(roomId:topic:data:)`,
+  /// providing compile-time type safety for topic payloads.
+  ///
+  /// ## Example
+  ///
+  /// ```swift
+  /// struct EmojiReaction: Codable, Sendable {
+  ///   var emoji: String
+  ///   var x: Double
+  ///   var y: Double
+  /// }
+  ///
+  /// presence.publishTypedTopic(
+  ///   roomId: "document-123",
+  ///   topic: "reactions",
+  ///   data: EmojiReaction(emoji: "🎉", x: 100, y: 200)
+  /// )
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - roomId: The room identifier.
+  ///   - topic: The topic name.
+  ///   - data: The type-safe message data.
+  public func publishTypedTopic<T: Codable & Sendable>(
+    roomId: String,
+    topic: String,
+    data: T
+  ) {
+    let dict = encodePresenceData(data)
+    publishTopic(roomId: roomId, topic: topic, data: dict)
+  }
+  
+  /// Subscribes to type-safe messages on a topic in a room.
+  ///
+  /// This is the generic equivalent of `subscribeTopic(roomId:topic:callback:)`,
+  /// providing compile-time type safety for topic payloads.
+  ///
+  /// ## Example
+  ///
+  /// ```swift
+  /// struct EmojiReaction: Codable, Sendable {
+  ///   var emoji: String
+  ///   var x: Double
+  ///   var y: Double
+  /// }
+  ///
+  /// let unsub = presence.subscribeTypedTopic(
+  ///   roomId: "document-123",
+  ///   topic: "reactions"
+  /// ) { (message: TypedTopicMessage<EmojiReaction>) in
+  ///   print("\(message.peerId) reacted with \(message.data.emoji)")
+  /// }
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - roomId: The room identifier.
+  ///   - topic: The topic name.
+  ///   - callback: Called when a message is received with type-safe data.
+  /// - Returns: Unsubscribe function.
+  public func subscribeTypedTopic<T: Codable & Sendable>(
+    roomId: String,
+    topic: String,
+    callback: @escaping (TypedTopicMessage<T>) -> Void
+  ) -> () -> Void {
+    return subscribeTopic(roomId: roomId, topic: topic) { message in
+      // Decode the message data
+      do {
+        let jsonData = try JSONSerialization.data(withJSONObject: message.data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        let typedData = try decoder.decode(T.self, from: jsonData)
+        
+        let typedMessage = TypedTopicMessage(
+          topic: message.topic,
+          data: typedData,
+          peerId: message.peerId
+        )
+        callback(typedMessage)
+      } catch {
+        logger.error("Failed to decode topic message: \(error.localizedDescription)")
+      }
+    }
+  }
+}
+
