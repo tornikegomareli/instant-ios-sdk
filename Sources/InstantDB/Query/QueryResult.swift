@@ -77,20 +77,9 @@ extension QueryResult {
     guard !entities.isEmpty else { return [] }
 
     do {
-      // Pre-process entities to convert fractional timestamps to integers
-      // InstantDB stores timestamps as Double (fractional milliseconds) which JSONDecoder
-      // can't handle with .millisecondsSince1970 strategy
+      // Pre-process entities to handle InstantDB-specific data quirks
       let processedEntities = entities.map { entity -> [String: Any] in
-        var processed = entity
-        for (key, value) in entity {
-          // Convert Double timestamps to Int (truncate fractional part)
-          // This handles fields like createdAt, updatedAt, etc.
-          if let doubleValue = value as? Double,
-             doubleValue > 1_000_000_000_000 {  // Likely a millisecond timestamp (> year 2001)
-            processed[key] = Int(doubleValue)
-          }
-        }
-        return processed
+        preprocessEntity(entity)
       }
       
       let jsonData = try JSONSerialization.data(withJSONObject: processedEntities)
@@ -102,6 +91,48 @@ extension QueryResult {
       print("[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)")
       return []
     }
+  }
+  
+  /// Pre-processes an entity dictionary to handle InstantDB data quirks.
+  ///
+  /// ## Why This Exists
+  ///
+  /// InstantDB's server (Clojure/EDN based) has some JSON encoding quirks:
+  ///
+  /// 1. **Timestamps**: Stored as Double (fractional milliseconds) which JSONDecoder
+  ///    can't handle with `.millisecondsSince1970` strategy (expects Int).
+  ///
+  /// 2. **Boolean/Number confusion**: Some JSON encoders represent `0` as `false`
+  ///    and non-zero as `true`. When a field is defined as Double but the value
+  ///    is `0`, it might come through as `false`.
+  ///
+  /// 3. **Nested entities**: Link fields contain nested entity dictionaries that
+  ///    also need preprocessing.
+  private func preprocessEntity(_ entity: [String: Any]) -> [String: Any] {
+    var processed = entity
+    for (key, value) in entity {
+      // Convert Double timestamps to Int (truncate fractional part)
+      // This handles fields like createdAt, updatedAt, etc.
+      if let doubleValue = value as? Double,
+         doubleValue > 1_000_000_000_000 {
+        // Likely a millisecond timestamp (> year 2001)
+        processed[key] = Int(doubleValue)
+      }
+      // Convert boolean to number for fields that might be numeric
+      // This handles the case where 0 is encoded as false
+      else if let boolValue = value as? Bool {
+        processed[key] = boolValue ? 1 : 0
+      }
+      // Recursively process nested entities (from links)
+      else if let nestedEntity = value as? [String: Any] {
+        processed[key] = preprocessEntity(nestedEntity)
+      }
+      // Process arrays of nested entities (from has-many links)
+      else if let nestedEntities = value as? [[String: Any]] {
+        processed[key] = nestedEntities.map { preprocessEntity($0) }
+      }
+    }
+    return processed
   }
 
   /// Decode single entity from namespace
