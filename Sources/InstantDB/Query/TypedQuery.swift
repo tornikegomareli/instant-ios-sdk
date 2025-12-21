@@ -163,6 +163,56 @@ public struct TypedQuery<T: InstantEntity> {
     let fieldName = extractFieldName(from: keyPath)
     return order(by: fieldName, direction)
   }
+  
+  /// Include a linked entity in the query results.
+  ///
+  /// This enables fetching related entities in a single query.
+  ///
+  /// ```swift
+  /// // Include author in post results
+  /// db.query(Post.self).with("author")
+  ///
+  /// // Include multiple relations
+  /// db.query(Post.self).with("author").with("comments")
+  /// ```
+  ///
+  /// - Parameter linkName: The name of the link field to include
+  /// - Returns: A new query with the link inclusion
+  public func with(_ linkName: String) -> TypedQuery<T> {
+    var copy = self
+    // In InstaQL, nested queries are represented as: { linkName: {} }
+    copy.nestedQueries[linkName] = [:] as [String: Any]
+    return copy
+  }
+  
+  /// Include a linked entity in the query results (type-safe).
+  ///
+  /// ```swift
+  /// db.query(Post.self).with(\.author)
+  /// ```
+  ///
+  /// - Parameter keyPath: KeyPath to the link field
+  /// - Returns: A new query with the link inclusion
+  public func with<V>(_ keyPath: KeyPath<T, V>) -> TypedQuery<T> {
+    let fieldName = extractFieldName(from: keyPath)
+    return with(fieldName)
+  }
+  
+  /// Include multiple linked entities in the query results.
+  ///
+  /// ```swift
+  /// db.query(Post.self).including(["author", "comments", "likes"])
+  /// ```
+  ///
+  /// - Parameter linkNames: Set of link field names to include
+  /// - Returns: A new query with all link inclusions
+  public func including(_ linkNames: Set<String>) -> TypedQuery<T> {
+    var copy = self
+    for linkName in linkNames {
+      copy.nestedQueries[linkName] = [:] as [String: Any]
+    }
+    return copy
+  }
 
   /// Convert to InstaQL dictionary format
   func toQuery() -> [String: Any] {
