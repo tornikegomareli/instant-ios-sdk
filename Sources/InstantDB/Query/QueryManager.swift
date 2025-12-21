@@ -297,18 +297,44 @@ final class QueryManager {
     }
   }
 
-  /// Computes a hash for query deduplication.
+  /// Computes a canonical hash for query deduplication.
   ///
   /// Identical queries produce identical hashes, allowing multiple subscribers
   /// to share a single server subscription.
   ///
-  /// - Note: Uses JSON serialization which may not be stable across platforms.
-  ///   Consider a canonical serialization for production.
+  /// ## Why Canonical Hashing
+  ///
+  /// Dictionary key ordering in Swift is not guaranteed, and JSONSerialization
+  /// may produce different JSON strings for semantically identical dictionaries.
+  /// This function sorts keys recursively to ensure consistent hashing.
+  ///
+  /// For example, these two queries are semantically identical:
+  /// - `["posts": ["$": [...], "author": [:]]]`
+  /// - `["posts": ["author": [:], "$": [...]]]`
+  ///
+  /// Without canonical hashing, they would produce different hashes and the
+  /// server's refresh updates would fail to match the local subscription.
   private func hashQuery(_ query: [String: Any]) -> String {
-    guard let data = try? JSONSerialization.data(withJSONObject: query),
+    let canonical = canonicalizeQuery(query)
+    guard let data = try? JSONSerialization.data(withJSONObject: canonical, options: .sortedKeys),
           let string = String(data: data, encoding: .utf8) else {
       return UUID().uuidString
     }
     return string.hash.description
+  }
+  
+  /// Recursively sorts dictionary keys to create a canonical representation.
+  private func canonicalizeQuery(_ value: Any) -> Any {
+    if let dict = value as? [String: Any] {
+      var result: [String: Any] = [:]
+      for key in dict.keys.sorted() {
+        result[key] = canonicalizeQuery(dict[key]!)
+      }
+      return result
+    } else if let array = value as? [Any] {
+      return array.map { canonicalizeQuery($0) }
+    } else {
+      return value
+    }
   }
 }
