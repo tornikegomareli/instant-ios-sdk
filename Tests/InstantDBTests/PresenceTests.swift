@@ -298,5 +298,316 @@ final class PresenceTests: XCTestCase {
   }
 }
 
+// MARK: - Typed Presence Tests
+
+/// Tests for the type-safe presence API.
+///
+/// ## Why These Tests Exist
+///
+/// The typed presence API (`TypedPresenceSlice<T>`, `subscribeTypedPresence<T>()`)
+/// provides compile-time type safety for presence data. These tests verify:
+/// 1. Encoding/decoding works correctly for Codable types
+/// 2. The typed API behaves identically to the untyped API
+/// 3. Edge cases like missing fields are handled gracefully
+@MainActor
+final class TypedPresenceTests: XCTestCase {
+  
+  private let appID = "b9319949-2f2d-410b-8f8a-6990177c1d44"
+  
+  // MARK: - Test Types
+  
+  /// A simple presence type for testing.
+  struct CursorPresence: PresenceData {
+    var x: Double
+    var y: Double
+    var name: String
+    var color: String
+    
+    init(x: Double = 0, y: Double = 0, name: String = "", color: String = "#000000") {
+      self.x = x
+      self.y = y
+      self.name = name
+      self.color = color
+    }
+  }
+  
+  /// A presence type with optional fields for testing.
+  struct UserPresence: PresenceData {
+    var name: String
+    var status: String
+    var avatar: String?
+    
+    init(name: String, status: String = "online", avatar: String? = nil) {
+      self.name = name
+      self.status = status
+      self.avatar = avatar
+    }
+  }
+  
+  // MARK: - Encoding/Decoding Tests
+  
+  /// Tests that `encodePresenceData` correctly encodes a Codable type.
+  func testEncodePresenceData() {
+    let presence = CursorPresence(x: 100, y: 200, name: "Alice", color: "#FF0000")
+    let dict = encodePresenceData(presence)
+    
+    XCTAssertEqual(dict["x"] as? Double, 100)
+    XCTAssertEqual(dict["y"] as? Double, 200)
+    XCTAssertEqual(dict["name"] as? String, "Alice")
+    XCTAssertEqual(dict["color"] as? String, "#FF0000")
+  }
+  
+  /// Tests that `encodePresenceData` handles optional fields correctly.
+  func testEncodePresenceDataWithOptionals() {
+    // With optional present
+    let withAvatar = UserPresence(name: "Alice", status: "online", avatar: "https://example.com/avatar.png")
+    let dictWithAvatar = encodePresenceData(withAvatar)
+    
+    XCTAssertEqual(dictWithAvatar["name"] as? String, "Alice")
+    XCTAssertEqual(dictWithAvatar["status"] as? String, "online")
+    XCTAssertEqual(dictWithAvatar["avatar"] as? String, "https://example.com/avatar.png")
+    
+    // Without optional
+    let withoutAvatar = UserPresence(name: "Bob", status: "away", avatar: nil)
+    let dictWithoutAvatar = encodePresenceData(withoutAvatar)
+    
+    XCTAssertEqual(dictWithoutAvatar["name"] as? String, "Bob")
+    XCTAssertEqual(dictWithoutAvatar["status"] as? String, "away")
+    // nil optionals should not be present in the dictionary
+    XCTAssertNil(dictWithoutAvatar["avatar"])
+  }
+  
+  /// Tests that `TypedPresenceSlice.from` correctly decodes presence data.
+  func testTypedPresenceSliceFromUntyped() {
+    let untypedSlice = PresenceSlice(
+      user: ["x": 100.0, "y": 200.0, "name": "Alice", "color": "#FF0000"],
+      peers: [
+        "peer-1": ["x": 50.0, "y": 60.0, "name": "Bob", "color": "#00FF00"],
+        "peer-2": ["x": 70.0, "y": 80.0, "name": "Charlie", "color": "#0000FF"]
+      ],
+      isLoading: false,
+      error: nil
+    )
+    
+    let fallback = CursorPresence()
+    let typedSlice = TypedPresenceSlice<CursorPresence>.from(untypedSlice, fallbackUser: fallback)
+    
+    // Verify user
+    XCTAssertEqual(typedSlice.user.x, 100.0)
+    XCTAssertEqual(typedSlice.user.y, 200.0)
+    XCTAssertEqual(typedSlice.user.name, "Alice")
+    XCTAssertEqual(typedSlice.user.color, "#FF0000")
+    
+    // Verify peers
+    XCTAssertEqual(typedSlice.peers.count, 2)
+    
+    let bob = typedSlice.peers.first { $0.id == "peer-1" }
+    XCTAssertNotNil(bob)
+    XCTAssertEqual(bob?.data.name, "Bob")
+    XCTAssertEqual(bob?.data.x, 50.0)
+    
+    let charlie = typedSlice.peers.first { $0.id == "peer-2" }
+    XCTAssertNotNil(charlie)
+    XCTAssertEqual(charlie?.data.name, "Charlie")
+    
+    // Verify metadata
+    XCTAssertFalse(typedSlice.isLoading)
+    XCTAssertNil(typedSlice.error)
+    XCTAssertEqual(typedSlice.totalCount, 3)
+    XCTAssertTrue(typedSlice.hasPeers)
+  }
+  
+  /// Tests that `TypedPresenceSlice.from` uses fallback when user data can't be decoded.
+  func testTypedPresenceSliceUseFallbackOnInvalidUser() {
+    let untypedSlice = PresenceSlice(
+      user: ["invalid": "data"],  // Missing required fields
+      peers: [:],
+      isLoading: false,
+      error: nil
+    )
+    
+    let fallback = CursorPresence(x: 999, y: 888, name: "Fallback", color: "#FFFFFF")
+    let typedSlice = TypedPresenceSlice<CursorPresence>.from(untypedSlice, fallbackUser: fallback)
+    
+    // Should use fallback values
+    XCTAssertEqual(typedSlice.user.x, 999)
+    XCTAssertEqual(typedSlice.user.y, 888)
+    XCTAssertEqual(typedSlice.user.name, "Fallback")
+  }
+  
+  /// Tests that `TypedPresenceSlice.from` skips peers that can't be decoded.
+  func testTypedPresenceSliceSkipsInvalidPeers() {
+    let untypedSlice = PresenceSlice(
+      user: ["x": 0.0, "y": 0.0, "name": "User", "color": "#000"],
+      peers: [
+        "valid-peer": ["x": 10.0, "y": 20.0, "name": "Valid", "color": "#FFF"],
+        "invalid-peer": ["garbage": "data"]  // Missing required fields
+      ],
+      isLoading: false,
+      error: nil
+    )
+    
+    let fallback = CursorPresence()
+    let typedSlice = TypedPresenceSlice<CursorPresence>.from(untypedSlice, fallbackUser: fallback)
+    
+    // Should only have the valid peer
+    XCTAssertEqual(typedSlice.peers.count, 1)
+    XCTAssertEqual(typedSlice.peers.first?.id, "valid-peer")
+    XCTAssertEqual(typedSlice.peers.first?.data.name, "Valid")
+  }
+  
+  // MARK: - Integration Tests
+  
+  /// Tests the full type-safe presence flow with a real connection.
+  func testTypedPresenceSubscription() async throws {
+    let roomId = "typed-test-\(UUID().uuidString.prefix(8))"
+    let client = InstantClient(appID: appID)
+    
+    defer { client.disconnect() }
+    
+    try await waitForAuthentication(client, name: "Client")
+    
+    var receivedUpdates: [TypedPresenceSlice<CursorPresence>] = []
+    let initialPresence = CursorPresence(x: 100, y: 200, name: "TestUser", color: "#FF0000")
+    
+    // Subscribe using the type-safe API
+    let unsub = client.presence.subscribeTypedPresence(
+      roomId: roomId,
+      initialPresence: initialPresence
+    ) { (slice: TypedPresenceSlice<CursorPresence>) in
+      print("Typed presence update: user=\(slice.user.name), peers=\(slice.peers.count)")
+      receivedUpdates.append(slice)
+    }
+    defer { unsub() }
+    
+    // Wait for initial presence
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    
+    // Should have received at least one update
+    XCTAssertFalse(receivedUpdates.isEmpty, "Should receive typed presence updates")
+    
+    // The user data should be type-safe
+    if let latest = receivedUpdates.last {
+      XCTAssertFalse(latest.isLoading, "Should not be loading after connection")
+      // Access type-safe properties
+      let _ = latest.user.x  // This compiles because it's type-safe!
+      let _ = latest.user.name
+    }
+  }
+  
+  /// Tests publishing typed presence data.
+  func testTypedPresencePublish() async throws {
+    let roomId = "typed-publish-\(UUID().uuidString.prefix(8))"
+    let client = InstantClient(appID: appID)
+    
+    defer { client.disconnect() }
+    
+    try await waitForAuthentication(client, name: "Client")
+    
+    var receivedUpdates: [TypedPresenceSlice<CursorPresence>] = []
+    let initialPresence = CursorPresence(x: 0, y: 0, name: "User", color: "#000")
+    
+    let unsub = client.presence.subscribeTypedPresence(
+      roomId: roomId,
+      initialPresence: initialPresence
+    ) { (slice: TypedPresenceSlice<CursorPresence>) in
+      receivedUpdates.append(slice)
+    }
+    defer { unsub() }
+    
+    // Wait for initial
+    try await Task.sleep(nanoseconds: 500_000_000)
+    
+    // Publish typed presence update
+    let updatedPresence = CursorPresence(x: 500, y: 600, name: "UpdatedUser", color: "#FF00FF")
+    client.presence.publishTypedPresence(roomId: roomId, data: updatedPresence)
+    
+    // Wait for update
+    try await Task.sleep(nanoseconds: 500_000_000)
+    
+    // Should have received updates
+    XCTAssertGreaterThan(receivedUpdates.count, 0, "Should receive presence updates")
+  }
+  
+  /// Tests typed topic messages.
+  func testTypedTopicMessages() async throws {
+    let roomId = "typed-topic-\(UUID().uuidString.prefix(8))"
+    
+    struct EmojiPayload: Codable, Sendable {
+      var emoji: String
+      var direction: Double
+    }
+    
+    let sender = InstantClient(appID: appID)
+    let receiver = InstantClient(appID: appID)
+    
+    defer {
+      sender.disconnect()
+      receiver.disconnect()
+    }
+    
+    try await waitForAuthentication(sender, name: "Sender")
+    try await waitForAuthentication(receiver, name: "Receiver")
+    
+    var receivedMessages: [TypedTopicMessage<EmojiPayload>] = []
+    
+    // Receiver subscribes to typed topic
+    let topicUnsub = receiver.presence.subscribeTypedTopic(
+      roomId: roomId,
+      topic: "emoji"
+    ) { (message: TypedTopicMessage<EmojiPayload>) in
+      print("Received typed message: \(message.data.emoji)")
+      receivedMessages.append(message)
+    }
+    defer { topicUnsub() }
+    
+    // Both join the room
+    let receiverJoin = receiver.presence.joinRoom(roomId)
+    let senderJoin = sender.presence.joinRoom(roomId)
+    defer {
+      receiverJoin()
+      senderJoin()
+    }
+    
+    // Wait for connection
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    
+    // Sender publishes typed topic message
+    sender.presence.publishTypedTopic(
+      roomId: roomId,
+      topic: "emoji",
+      data: EmojiPayload(emoji: "🔥", direction: 0.5)
+    )
+    
+    // Wait for message
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    
+    // Verify type-safe access (this test mainly verifies compilation)
+    for message in receivedMessages {
+      let _ = message.data.emoji  // Type-safe!
+      let _ = message.data.direction
+    }
+  }
+  
+  // MARK: - Helpers
+  
+  private func waitForAuthentication(
+    _ client: InstantClient,
+    name: String,
+    timeout: TimeInterval = 5.0
+  ) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    
+    while client.connectionState != .authenticated && Date() < deadline {
+      try await Task.sleep(nanoseconds: 100_000_000)
+    }
+    
+    guard client.connectionState == .authenticated else {
+      throw XCTSkip("\(name) failed to authenticate within \(timeout)s. State: \(client.connectionState)")
+    }
+  }
+}
+
+
 
 
