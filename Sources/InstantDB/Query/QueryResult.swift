@@ -102,9 +102,10 @@ extension QueryResult {
   /// 1. **Timestamps**: Stored as Double (fractional milliseconds) which JSONDecoder
   ///    can't handle with `.millisecondsSince1970` strategy (expects Int).
   ///
-  /// 2. **Boolean/Number confusion**: Some JSON encoders represent `0` as `false`
-  ///    and non-zero as `true`. When a field is defined as Double but the value
-  ///    is `0`, it might come through as `false`.
+  /// 2. **Boolean/Number confusion**: InstantDB's server sometimes returns numbers
+  ///    (0/1) for boolean fields. We don't convert these at preprocessing time
+  ///    because we don't know the target type. Instead, entities should use
+  ///    `FlexibleBool` or custom decoders if they have boolean fields.
   ///
   /// 3. **Nested entities**: Link fields contain nested entity dictionaries that
   ///    also need preprocessing.
@@ -117,11 +118,6 @@ extension QueryResult {
          doubleValue > 1_000_000_000_000 {
         // Likely a millisecond timestamp (> year 2001)
         processed[key] = Int(doubleValue)
-      }
-      // Convert boolean to number for fields that might be numeric
-      // This handles the case where 0 is encoded as false
-      else if let boolValue = value as? Bool {
-        processed[key] = boolValue ? 1 : 0
       }
       // Recursively process nested entities (from links)
       else if let nestedEntity = value as? [String: Any] {

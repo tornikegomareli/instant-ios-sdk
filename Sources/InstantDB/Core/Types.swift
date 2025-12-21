@@ -20,6 +20,166 @@ public typealias RoomID = String
 /// Session identifier
 public typealias SessionID = String
 
+// MARK: - Flexible Bool
+
+/// A boolean type that can decode from both Bool and Int values.
+///
+/// InstantDB's server sometimes returns `0`/`1` for boolean fields instead of
+/// `true`/`false`. This type handles both cases transparently.
+///
+/// ## Usage
+///
+/// Use `FlexibleBool` in your entity types for boolean fields:
+///
+/// ```swift
+/// struct Todo: Codable {
+///   let id: String
+///   let title: String
+///   var done: FlexibleBool  // Decodes from true/false OR 0/1
+/// }
+/// ```
+///
+/// You can use it like a regular Bool thanks to `ExpressibleByBooleanLiteral`:
+/// ```swift
+/// var todo = Todo(done: false)  // Works!
+/// if todo.done.wrappedValue {
+///   print("Done!")
+/// }
+/// todo.done.toggle()  // Toggle support
+/// ```
+@propertyWrapper
+public struct FlexibleBool: Codable, Sendable, Equatable, Hashable, ExpressibleByBooleanLiteral {
+  public var wrappedValue: Bool
+  
+  public init(wrappedValue: Bool) {
+    self.wrappedValue = wrappedValue
+  }
+  
+  public init(_ value: Bool) {
+    self.wrappedValue = value
+  }
+  
+  public init(booleanLiteral value: Bool) {
+    self.wrappedValue = value
+  }
+  
+  /// Toggle the boolean value
+  public mutating func toggle() {
+    wrappedValue.toggle()
+  }
+  
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    
+    // Try decoding as Bool first
+    if let boolValue = try? container.decode(Bool.self) {
+      self.wrappedValue = boolValue
+      return
+    }
+    
+    // Try decoding as Int (0 = false, non-zero = true)
+    if let intValue = try? container.decode(Int.self) {
+      self.wrappedValue = intValue != 0
+      return
+    }
+    
+    // Try decoding as Double (0.0 = false, non-zero = true)
+    if let doubleValue = try? container.decode(Double.self) {
+      self.wrappedValue = doubleValue != 0
+      return
+    }
+    
+    throw DecodingError.typeMismatch(
+      Bool.self,
+      DecodingError.Context(
+        codingPath: decoder.codingPath,
+        debugDescription: "Expected Bool, Int, or Double for FlexibleBool"
+      )
+    )
+  }
+  
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(wrappedValue)
+  }
+}
+
+// MARK: - Flexible Double
+
+/// A Double type that can decode from both Double and Bool values.
+///
+/// InstantDB's server sometimes returns `false` for `0` and `true` for non-zero
+/// numeric fields. This type handles both cases transparently.
+///
+/// ## Usage
+///
+/// Use `FlexibleDouble` in your entity types for numeric fields that might
+/// receive boolean values from the server:
+///
+/// ```swift
+/// struct Post: Codable {
+///   let id: String
+///   let content: String
+///   var likesCount: FlexibleDouble  // Decodes from number OR false/true
+/// }
+/// ```
+@propertyWrapper
+public struct FlexibleDouble: Codable, Sendable, Equatable, Hashable, ExpressibleByFloatLiteral, ExpressibleByIntegerLiteral {
+  public var wrappedValue: Double
+  
+  public init(wrappedValue: Double) {
+    self.wrappedValue = wrappedValue
+  }
+  
+  public init(_ value: Double) {
+    self.wrappedValue = value
+  }
+  
+  public init(floatLiteral value: Double) {
+    self.wrappedValue = value
+  }
+  
+  public init(integerLiteral value: Int) {
+    self.wrappedValue = Double(value)
+  }
+  
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    
+    // Try decoding as Double first
+    if let doubleValue = try? container.decode(Double.self) {
+      self.wrappedValue = doubleValue
+      return
+    }
+    
+    // Try decoding as Int
+    if let intValue = try? container.decode(Int.self) {
+      self.wrappedValue = Double(intValue)
+      return
+    }
+    
+    // Try decoding as Bool (false = 0, true = 1)
+    // This handles InstantDB returning `false` for 0
+    if let boolValue = try? container.decode(Bool.self) {
+      self.wrappedValue = boolValue ? 1.0 : 0.0
+      return
+    }
+    
+    throw DecodingError.typeMismatch(
+      Double.self,
+      DecodingError.Context(
+        codingPath: decoder.codingPath,
+        debugDescription: "Expected Double, Int, or Bool for FlexibleDouble"
+      )
+    )
+  }
+  
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(wrappedValue)
+  }
+}
+
 // MARK: - Value Types
 
 /// Value types supported by InstantDB
