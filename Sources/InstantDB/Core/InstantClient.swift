@@ -624,6 +624,7 @@ extension InstantClient {
     let unsubscribe = queryManager.subscribe(query: instaqlQuery, callback: wrappedCallback)
 
     // Get the subscription to send to server
+    // Use the same canonical hashing as QueryManager to ensure hash matches
     let hash = hashQuery(instaqlQuery)
     guard let subscription = queryManager.getSubscription(hash: hash) else {
       throw InstantError.invalidQuery
@@ -639,12 +640,32 @@ extension InstantClient {
     return SubscriptionToken(onCleanup: unsubscribe)
   }
 
+  /// Computes a canonical hash for query matching.
+  ///
+  /// This must match the hashing algorithm in QueryManager to ensure
+  /// we can look up subscriptions by hash after creating them.
   private func hashQuery(_ query: [String: Any]) -> String {
-    guard let data = try? JSONSerialization.data(withJSONObject: query),
+    let canonical = canonicalizeQuery(query)
+    guard let data = try? JSONSerialization.data(withJSONObject: canonical, options: .sortedKeys),
           let string = String(data: data, encoding: .utf8) else {
       return UUID().uuidString
     }
     return string.hash.description
+  }
+  
+  /// Recursively sorts dictionary keys to create a canonical representation.
+  private func canonicalizeQuery(_ value: Any) -> Any {
+    if let dict = value as? [String: Any] {
+      var result: [String: Any] = [:]
+      for key in dict.keys.sorted() {
+        result[key] = canonicalizeQuery(dict[key]!)
+      }
+      return result
+    } else if let array = value as? [Any] {
+      return array.map { canonicalizeQuery($0) }
+    } else {
+      return value
+    }
   }
 }
 
