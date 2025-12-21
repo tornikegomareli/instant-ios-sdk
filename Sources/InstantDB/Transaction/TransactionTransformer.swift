@@ -255,12 +255,21 @@ final class TransactionTransformer {
     return steps
   }
 
-  /// Find attribute by entity type and label
+  /// Find attribute by entity type and label (checks both forward and reverse identity)
   private static func findAttribute(entityType: String, label: String, attributes: [Attribute]) -> Attribute? {
-    attributes.first { attr in
+    // First check forward identity
+    if let fwdAttr = attributes.first(where: { attr in
       attr.forwardIdentity.count >= 3 &&
       attr.forwardIdentity[1] == entityType &&
       attr.forwardIdentity[2] == label
+    }) {
+      return fwdAttr
+    }
+    
+    // Then check reverse identity (for link attributes)
+    return attributes.first { attr in
+      guard let revIdent = attr.reverseIdentity, revIdent.count >= 3 else { return false }
+      return revIdent[1] == entityType && revIdent[2] == label
     }
   }
 }
