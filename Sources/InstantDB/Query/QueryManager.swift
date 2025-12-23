@@ -24,6 +24,8 @@ final class QueryManager {
 
   // MARK: - Properties
   
+  private let localStorage: LocalStorage?
+
   /// Active subscriptions indexed by query hash.
   ///
   /// The hash is computed from the JSON representation of the query,
@@ -41,6 +43,12 @@ final class QueryManager {
   /// The InstantClient uses this to send `remove-query` messages to the server,
   /// freeing server resources for queries we no longer care about.
   var onRemoveQuery: (([String: Any]) -> Void)?
+
+  // MARK: - Initialization
+
+  init(localStorage: LocalStorage? = nil) {
+    self.localStorage = localStorage
+  }
 
   // MARK: - Subscription Management
 
@@ -69,14 +77,18 @@ final class QueryManager {
     }
 
     // Create new subscription
-    let subscription = QuerySubscription(query: query, callback: callback)
+    var subscription = QuerySubscription(query: query, callback: callback)
     let eventId = subscription.eventId
 
     subscriptions[hash] = subscription
     eventIdToHash[eventId] = hash
 
-    // Immediately deliver loading state
-    callback(.loading)
+    if let cached = loadCachedQueryResult(hash: hash) {
+      subscription.updateResult(cached)
+      subscriptions[hash] = subscription
+    } else {
+      callback(.loading)
+    }
 
     return { [weak self] in
       self?.unsubscribe(hash: hash, callback: callback)
@@ -166,6 +178,8 @@ final class QueryManager {
     let queryResult = QueryResult.success(data: instaqlData, pageInfo: pageInfoData)
     subscription.updateResult(queryResult)
     subscriptions[hash] = subscription
+
+    persistQueryResultCache(hash: hash, query: subscription.query, result: queryResult)
   }
   
   /// Handles the server's response when a query already exists.
@@ -264,7 +278,64 @@ final class QueryManager {
       let queryResult = QueryResult.success(data: instaqlData, pageInfo: pageInfoData)
       subscription.updateResult(queryResult)
       subscriptions[hash] = subscription
+
+      persistQueryResultCache(hash: hash, query: subscription.query, result: queryResult)
     }
+  }
+
+  // MARK: - Query Cache (Offline Support)
+
+  private func loadCachedQueryResult(hash: String) -> QueryResult? {
+    guard let localStorage else { return nil }
+
+    do {
+      guard let data = try localStorage.getCachedQueryResultSync(hash: hash) else { return nil }
+      return queryResult(fromCachedData: data)
+    } catch {
+      InstantLog.debug("[QueryManager] Failed to load cached query result: \(error)")
+      return nil
+    }
+  }
+
+  private func persistQueryResultCache(hash: String, query: [String: Any], result: QueryResult) {
+    guard let localStorage else { return }
+
+    guard let queryData = QueryHashing.canonicalJSONData(query) else { return }
+    guard let resultData = cachedData(from: result) else { return }
+
+    Task {
+      do {
+        try await localStorage.cacheQueryResult(hash: hash, query: queryData, result: resultData)
+      } catch {
+        InstantLog.debug("[QueryManager] Failed to persist query cache: \(error)")
+      }
+    }
+  }
+
+  private func queryResult(fromCachedData data: Data) -> QueryResult? {
+    do {
+      guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+      guard let cachedData = obj["data"] as? [String: Any] else { return nil }
+
+      let pageInfo = obj["pageInfo"] as? [String: Any]
+      return QueryResult.success(data: cachedData, pageInfo: pageInfo)
+    } catch {
+      return nil
+    }
+  }
+
+  private func cachedData(from result: QueryResult) -> Data? {
+    var payload: [String: Any] = [
+      "data": result.data
+    ]
+
+    if let pageInfo = result.pageInfo {
+      payload["pageInfo"] = pageInfo
+    } else {
+      payload["pageInfo"] = NSNull()
+    }
+
+    return try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
   }
 
   /// Handles a query error from the server.

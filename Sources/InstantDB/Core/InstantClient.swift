@@ -28,7 +28,10 @@ public final class InstantClient: ObservableObject {
   public let authManager: AuthManager
 
   /// Query manager
-  private let queryManager = QueryManager()
+  private let queryManager: QueryManager
+
+  /// Offline persistence (query cache + pending mutations)
+  private let localStorage: LocalStorage?
   
   /// Presence manager for real-time presence and topics
   public let presence: PresenceManager
@@ -44,16 +47,25 @@ public final class InstantClient: ObservableObject {
   ///   - baseURL: Optional custom server URL (default: production)
   public init(
     appID: String,
-    baseURL: String = "wss://api.instantdb.com"
+    baseURL: String = "wss://api.instantdb.com",
+    enableLocalPersistence: Bool = true
   ) {
     self.appID = appID
     self.baseURL = baseURL
     self.connection = WebSocketConnection(appID: appID, baseURL: baseURL)
+
+    if enableLocalPersistence {
+      self.localStorage = try? LocalStorage(appId: appID)
+    } else {
+      self.localStorage = nil
+    }
     
     let httpBaseURL = baseURL
       .replacingOccurrences(of: "wss://", with: "https://")
       .replacingOccurrences(of: "ws://", with: "http://")
     self.authManager = AuthManager(appID: appID, baseURL: httpBaseURL)
+
+    self.queryManager = QueryManager(localStorage: self.localStorage)
     
     // Initialize presence manager and wire up message sending
     self.presence = PresenceManager()
