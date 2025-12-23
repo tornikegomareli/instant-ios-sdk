@@ -410,6 +410,16 @@ public final class InstantClient: ObservableObject {
       return
     }
 
+    var refreshedAttributes: [Attribute]?
+    if let attrsData = message.data["attrs"]?.value {
+      do {
+        let data = try JSONSerialization.data(withJSONObject: attrsData)
+        refreshedAttributes = try JSONDecoder().decode([Attribute].self, from: data)
+      } catch {
+        print("[InstantDB] Failed to decode attributes from refresh: \(error)")
+      }
+    }
+
     print("[InstantDB] refresh-ok has \(computations.count) computations")
     for (index, computation) in computations.enumerated() {
       print("[InstantDB]   computation[\(index)] keys: \(computation.keys)")
@@ -419,7 +429,15 @@ public final class InstantClient: ObservableObject {
     }
 
     Task { @MainActor in
-      self.queryManager.handleRefresh(computations: computations, attributes: self.attributes)
+      if let refreshedAttributes {
+        self.attributes = refreshedAttributes
+        print("[InstantDB] ✓ Updated \(refreshedAttributes.count) attributes from refresh")
+      }
+
+      self.queryManager.handleRefresh(
+        computations: computations,
+        attributes: refreshedAttributes ?? self.attributes
+      )
     }
 
     print("[InstantDB] ✓ Real-time update delivered (\(computations.count) queries)")
@@ -443,6 +461,7 @@ public final class InstantClient: ObservableObject {
       }
     }
   }
+
   
   // MARK: - Presence Message Handlers
   //
