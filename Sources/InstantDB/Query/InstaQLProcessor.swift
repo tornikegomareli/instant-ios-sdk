@@ -105,9 +105,20 @@ struct InstaQLProcessor {
       let linkedNamespace: String
       let cardinality: Cardinality?
     }
+
+    struct RefEdge {
+      let sourceNamespace: String
+      let sourceId: String
+      let attrName: String
+      let attributeId: String
+      let linkedId: String
+      let cardinality: Cardinality?
+      let reverseIdentity: [String]?
+    }
     
     var forwardLinks: [RefLink] = []
     var reverseLinks: [RefLink] = []
+    var refEdges: [RefEdge] = []
     
     for triple in triples {
       guard triple.count >= 3,
@@ -148,42 +159,95 @@ struct InstaQLProcessor {
       if attr.valueType == .ref {
         // The value is the ID of the linked entity
         if let linkedId = value as? String {
-          // Forward link: parent → child (e.g., profiles.posts)
-          if let reverseIdentity = attr.reverseIdentity,
-             reverseIdentity.count >= 3 {
-            // reverseIdentity = [identId, linkedNamespace, reverseLabel]
-            let linkedNamespace = reverseIdentity[1]
-            
-            forwardLinks.append(RefLink(
-              parentNamespace: namespace,
-              parentId: entityId,
-              linkLabel: attrName,
+          refEdges.append(
+            RefEdge(
+              sourceNamespace: namespace,
+              sourceId: entityId,
+              attrName: attrName,
+              attributeId: attrId,
               linkedId: linkedId,
-              linkedNamespace: linkedNamespace,
-              cardinality: attr.cardinality
-            ))
-            
-            // Reverse link: child → parent (e.g., posts.author)
-            let reverseLabel = reverseIdentity[2]
-            reverseLinks.append(RefLink(
-              parentNamespace: linkedNamespace,
-              parentId: linkedId,
-              linkLabel: reverseLabel,
-              linkedId: entityId,
-              linkedNamespace: namespace,
-              // We don't verify reverse cardinality yet.
-              cardinality: nil
-            ))
-	          } else {
-	            InstantLog.warningOnce(
-	              "instaql.missing-reverse-identity.\(attrId)",
-	              "[InstaQLProcessor] Warning: Missing or incomplete reverse identity for link '\(attrName)' (attribute: \(attrId))."
-	            )
-	          }
-	        }
-	      } else {
+              cardinality: attr.cardinality,
+              reverseIdentity: attr.reverseIdentity
+            )
+          )
+        }
+      } else {
         // Regular attribute - add directly to entity
         entities[namespace]?[entityId]?[attrName] = value
+      }
+    }
+
+    var namespaceByEntityId: [String: String] = [:]
+    for (namespace, entitiesById) in entities {
+      for entityId in entitiesById.keys {
+        namespaceByEntityId[entityId] = namespace
+      }
+    }
+
+    for edge in refEdges {
+      let linkedNamespace: String?
+      let reverseLabel: String?
+
+      if let reverseIdentity = edge.reverseIdentity, reverseIdentity.count >= 3 {
+        linkedNamespace = reverseIdentity[1]
+        reverseLabel = reverseIdentity[2]
+      } else {
+        linkedNamespace = namespaceByEntityId[edge.linkedId]
+        reverseLabel = nil
+
+        InstantLog.warningOnce(
+          "instaql.missing-reverse-identity.\(edge.attributeId)",
+          """
+          [InstaQLProcessor] Warning: Missing reverse identity for link '\(edge.sourceNamespace).\(edge.attrName)' (attribute: \(edge.attributeId)).
+
+          WHAT HAPPENED:
+            The server schema did not include `reverse-identity` metadata for this ref attribute.
+
+          WHY THIS MATTERS:
+            The client uses reverse identities to infer the linked namespace and to construct reverse links.
+
+          WHAT WE DID:
+            We inferred the linked namespace from the query result payload and nested the linked entity.
+            Reverse links are not inferred without schema metadata.
+          """
+        )
+      }
+
+      guard let linkedNamespace else {
+        InstantLog.warningOnce(
+          "instaql.missing-linked-namespace.\(edge.attributeId)",
+          """
+          [InstaQLProcessor] Warning: Unable to infer linked namespace for link '\(edge.sourceNamespace).\(edge.attrName)' (attribute: \(edge.attributeId)).
+
+          HOW TO FIX:
+            Ensure the schema attribute includes a `reverse-identity` or that the linked entity is included in the query result.
+          """
+        )
+        continue
+      }
+
+      forwardLinks.append(
+        RefLink(
+          parentNamespace: edge.sourceNamespace,
+          parentId: edge.sourceId,
+          linkLabel: edge.attrName,
+          linkedId: edge.linkedId,
+          linkedNamespace: linkedNamespace,
+          cardinality: edge.cardinality
+        )
+      )
+
+      if let reverseLabel {
+        reverseLinks.append(
+          RefLink(
+            parentNamespace: linkedNamespace,
+            parentId: edge.linkedId,
+            linkLabel: reverseLabel,
+            linkedId: edge.sourceId,
+            linkedNamespace: edge.sourceNamespace,
+            cardinality: nil
+          )
+        )
       }
     }
     
