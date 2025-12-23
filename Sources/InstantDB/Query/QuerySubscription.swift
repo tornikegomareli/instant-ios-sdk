@@ -53,7 +53,7 @@ struct QuerySubscription {
 
   /// Notify all callbacks with current result
   func notifyCallbacks() {
-    print("[QuerySubscription] Notifying \(callbacks.count) callbacks")
+    InstantLog.debug("[QuerySubscription] Notifying \(callbacks.count) callbacks")
     callbacks.forEach { $0(currentResult) }
   }
 }

@@ -88,7 +88,10 @@ extension QueryResult {
       decoder.dateDecodingStrategy = .millisecondsSince1970
       return try decoder.decode([T].self, from: jsonData)
     } catch {
-      print("[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)")
+      InstantLog.warningOnce(
+        "query-result.decode.\(namespace).\(String(reflecting: T.self))",
+        "[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)"
+      )
       return []
     }
   }
@@ -169,7 +172,10 @@ extension QueryResult {
       let jsonData = try JSONSerialization.data(withJSONObject: entities)
       return try decoder.decode([T].self, from: jsonData)
     } catch {
-      print("[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)")
+      InstantLog.warningOnce(
+        "query-result.decode.\(namespace).\(String(reflecting: T.self))",
+        "[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)"
+      )
       return []
     }
   }

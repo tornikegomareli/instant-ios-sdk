@@ -59,7 +59,7 @@ public final class AuthManager: ObservableObject {
       }
 
     } catch {
-      print("[InstantDB] Failed to restore auth: \(error)")
+      InstantLog.warning("[InstantDB] Failed to restore auth: \(error)")
       try? clearAuth()
       self.state = .unauthenticated
     }

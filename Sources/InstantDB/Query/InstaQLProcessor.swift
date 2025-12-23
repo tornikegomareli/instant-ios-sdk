@@ -119,7 +119,10 @@ struct InstaQLProcessor {
       let value = triple[2]
       
       guard let attr = attrById[attrId] else {
-        print("[InstaQLProcessor] Warning: Attribute ID '\(attrId)' not found in schema. Dropping triple for entity '\(entityId)'.")
+        InstantLog.warningOnce(
+          "instaql.missing-attr-id.\(attrId)",
+          "[InstaQLProcessor] Warning: Attribute ID '\(attrId)' not found in schema. Dropping triple for entity '\(entityId)'."
+        )
         continue
       }
       
@@ -171,11 +174,14 @@ struct InstaQLProcessor {
               // We don't verify reverse cardinality yet.
               cardinality: nil
             ))
-          } else {
-            print("[InstaQLProcessor] Warning: Missing or incomplete reverse identity for link '\(attrName)' (attribute: \(attrId)).")
-          }
-        }
-      } else {
+	          } else {
+	            InstantLog.warningOnce(
+	              "instaql.missing-reverse-identity.\(attrId)",
+	              "[InstaQLProcessor] Warning: Missing or incomplete reverse identity for link '\(attrName)' (attribute: \(attrId))."
+	            )
+	          }
+	        }
+	      } else {
         // Regular attribute - add directly to entity
         entities[namespace]?[entityId]?[attrName] = value
       }

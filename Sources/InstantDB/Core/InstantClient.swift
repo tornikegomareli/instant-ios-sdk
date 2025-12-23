@@ -99,10 +99,10 @@ public final class InstantClient: ObservableObject {
           try self.connection.send(msg)
           
         default:
-          print("[InstantDB] Unknown presence op: \(op)")
+          InstantLog.warning("[InstantDB] Unknown presence op: \(op)")
         }
       } catch {
-        print("[InstantDB] Failed to send presence message: \(error)")
+        InstantLog.warning("[InstantDB] Failed to send presence message: \(error)")
       }
     }
   }
@@ -118,8 +118,8 @@ public final class InstantClient: ObservableObject {
       self?.handleServerMessage(message)
     }
 
-    connection.onError = { [weak self] error in
-      print("[InstantDB] Error: \(error.localizedDescription)")
+    connection.onError = { error in
+      InstantLog.warning("[InstantDB] Error: \(error.localizedDescription)")
     }
 
     connection.onOpen = { [weak self] in
@@ -196,6 +196,10 @@ public final class InstantClient: ObservableObject {
     messageHandlers["leave-room-ok"] = { _ in
       // Acknowledgment that room was left successfully
     }
+    
+    messageHandlers["client-broadcast-ok"] = { _ in
+      // Acknowledgment that a client broadcast was sent successfully
+    }
   }
   
   /// Connect to InstantDB server
@@ -222,7 +226,7 @@ public final class InstantClient: ObservableObject {
     do {
       try connection.send(message)
     } catch {
-      print("[InstantDB] Failed to send init message: \(error)")
+      InstantLog.warning("[InstantDB] Failed to send init message: \(error)")
     }
   }
 
@@ -236,25 +240,25 @@ public final class InstantClient: ObservableObject {
 
     do {
       try connection.send(message)
-      print("[InstantDB] → Sent remove-query")
+      InstantLog.debug("[InstantDB] → Sent remove-query")
     } catch {
-      print("[InstantDB] Failed to send remove-query: \(error)")
+      InstantLog.warning("[InstantDB] Failed to send remove-query: \(error)")
     }
   }
   
   private func handleServerMessage(_ message: ServerMessage) {
-    print("[InstantDB] ← Received: \(message.op)")
+    InstantLog.debug("[InstantDB] ← Received: \(message.op)")
     
     if let handler = messageHandlers[message.op] {
       handler(message)
     } else {
-      print("[InstantDB] Unhandled message type: \(message.op)")
+      InstantLog.warning("[InstantDB] Unhandled message type: \(message.op)")
     }
   }
   
   private func handleInitOk(_ message: ServerMessage) {
     guard let sessionId = message.data["session-id"]?.value as? String else {
-      print("[InstantDB] Init-ok missing session-id")
+      InstantLog.warning("[InstantDB] Init-ok missing session-id")
       return
     }
     
@@ -270,7 +274,7 @@ public final class InstantClient: ObservableObject {
           let attrs = try JSONDecoder().decode([Attribute].self, from: data)
           self.attributes = attrs
         } catch {
-          print("[InstantDB] Failed to decode attributes: \(error)")
+          InstantLog.warning("[InstantDB] Failed to decode attributes: \(error)")
         }
       }
       
@@ -285,15 +289,15 @@ public final class InstantClient: ObservableObject {
             try? self.authManager.saveAuth(user)
           }
         } catch {
-          print("[InstantDB] Failed to decode auth info: \(error)")
+          InstantLog.warning("[InstantDB] Failed to decode auth info: \(error)")
         }
       }
       
-      print("[InstantDB] ✓ Connected! Session: \(sessionId)")
-      print("[InstantDB] ✓ Loaded \(self.attributes.count) attributes")
+      InstantLog.info("[InstantDB] ✓ Connected! Session: \(sessionId)")
+      InstantLog.info("[InstantDB] ✓ Loaded \(self.attributes.count) attributes")
       
       if let auth = self.authInfo {
-        print("[InstantDB] ✓ Authenticated as: \(auth.user?.email ?? "guest")")
+        InstantLog.info("[InstantDB] ✓ Authenticated as: \(auth.user?.email ?? "guest")")
       }
       
       // Resend all active queries after reconnection
@@ -308,11 +312,11 @@ public final class InstantClient: ObservableObject {
     let activeQueries = queryManager.getActiveQueries()
     
     guard !activeQueries.isEmpty else {
-      print("[InstantDB] No active queries to resend")
+      InstantLog.debug("[InstantDB] No active queries to resend")
       return
     }
     
-    print("[InstantDB] ↻ Resending \(activeQueries.count) active queries after reconnection...")
+    InstantLog.debug("[InstantDB] ↻ Resending \(activeQueries.count) active queries after reconnection...")
     
     for (eventId, query) in activeQueries {
       let message = AddQueryMessage(
@@ -323,27 +327,27 @@ public final class InstantClient: ObservableObject {
       do {
         try connection.send(message)
         if let namespace = query.keys.first {
-          print("[InstantDB]   → Resent query for '\(namespace)'")
+          InstantLog.debug("[InstantDB]   → Resent query for '\(namespace)'")
         }
       } catch {
-        print("[InstantDB]   ✗ Failed to resend query: \(error)")
+        InstantLog.warning("[InstantDB]   ✗ Failed to resend query: \(error)")
       }
     }
     
-    print("[InstantDB] ✓ All active queries resent")
+    InstantLog.debug("[InstantDB] ✓ All active queries resent")
   }
   
   private func handleAddQueryOk(_ message: ServerMessage) {
     if let resultValue = message.data["result"]?.value,
          let jsonData = try? JSONSerialization.data(withJSONObject: resultValue, options: .prettyPrinted),
          let jsonString = String(data: jsonData, encoding: .utf8) {
-        print("[InstantDB] DEBUG add-query-ok full result:")
-        print(jsonString)
+        InstantLog.debug("[InstantDB] DEBUG add-query-ok full result:")
+        InstantLog.debug(jsonString)
       }
     
     // Parse result array
     guard let resultArray = message.data["result"]?.value as? [[String: Any]] else {
-      print("[InstantDB] Add-query-ok missing result array")
+      InstantLog.warning("[InstantDB] Add-query-ok missing result array")
       return
     }
 
@@ -357,11 +361,11 @@ public final class InstantClient: ObservableObject {
       )
     }
 
-    print("[InstantDB] ✓ Query result delivered")
+    InstantLog.debug("[InstantDB] ✓ Query result delivered")
   }
   
   private func handleAddQueryExists(_ message: ServerMessage) {
-    print("[InstantDB] Query already exists, delivering cached data")
+    InstantLog.debug("[InstantDB] Query already exists, delivering cached data")
 
     // The server sends add-query-exists when a query with the same hash already exists.
     // This happens when we try to subscribe to the same query twice.
@@ -369,8 +373,8 @@ public final class InstantClient: ObservableObject {
     // We need to look up the existing subscription and deliver its cached result.
     
     guard let queryDict = message.data["q"]?.value as? [String: Any] else {
-      print("[InstantDB] Add-query-exists missing query ('q')")
-      print("[InstantDB] Available keys: \(message.data.keys)")
+      InstantLog.warning("[InstantDB] Add-query-exists missing query ('q')")
+      InstantLog.debug("[InstantDB] Available keys: \(message.data.keys)")
       return
     }
     
@@ -382,30 +386,30 @@ public final class InstantClient: ObservableObject {
       )
     }
 
-    print("[InstantDB] ✓ Cached query result delivered")
+    InstantLog.debug("[InstantDB] ✓ Cached query result delivered")
   }
   
   private func handleRemoveQueryOk(_ message: ServerMessage) {
-    print("[InstantDB] ✓ Query removed from server")
+    InstantLog.debug("[InstantDB] ✓ Query removed from server")
   }
 
   private func handleTransactOk(_ message: ServerMessage) {
     guard let txId = message.data["tx-id"]?.value as? Int else {
-      print("[InstantDB] Transact-ok missing tx-id")
+      InstantLog.warning("[InstantDB] Transact-ok missing tx-id")
       return
     }
 
-    print("[InstantDB] ✓ Transaction confirmed: \(txId)")
+    InstantLog.debug("[InstantDB] ✓ Transaction confirmed: \(txId)")
   }
   
   private func handleRefreshOk(_ message: ServerMessage) {
-    print("[InstantDB] refresh-ok received, data keys: \(message.data.keys)")
+    InstantLog.debug("[InstantDB] refresh-ok received, data keys: \(message.data.keys)")
     
     guard let computations = message.data["computations"]?.value as? [[String: Any]] else {
-      print("[InstantDB] Refresh-ok missing computations")
+      InstantLog.warning("[InstantDB] Refresh-ok missing computations")
       // Debug: print all available data
       for (key, value) in message.data {
-        print("[InstantDB]   \(key): \(type(of: value.value))")
+        InstantLog.debug("[InstantDB]   \(key): \(type(of: value.value))")
       }
       return
     }
@@ -416,22 +420,22 @@ public final class InstantClient: ObservableObject {
         let data = try JSONSerialization.data(withJSONObject: attrsData)
         refreshedAttributes = try JSONDecoder().decode([Attribute].self, from: data)
       } catch {
-        print("[InstantDB] Failed to decode attributes from refresh: \(error)")
+        InstantLog.warning("[InstantDB] Failed to decode attributes from refresh: \(error)")
       }
     }
 
-    print("[InstantDB] refresh-ok has \(computations.count) computations")
+    InstantLog.debug("[InstantDB] refresh-ok has \(computations.count) computations")
     for (index, computation) in computations.enumerated() {
-      print("[InstantDB]   computation[\(index)] keys: \(computation.keys)")
+      InstantLog.debug("[InstantDB]   computation[\(index)] keys: \(computation.keys)")
       if let query = computation["instaql-query"] as? [String: Any] {
-        print("[InstantDB]   computation[\(index)] query namespaces: \(query.keys)")
+        InstantLog.debug("[InstantDB]   computation[\(index)] query namespaces: \(query.keys)")
       }
     }
 
     Task { @MainActor in
       if let refreshedAttributes {
         self.attributes = refreshedAttributes
-        print("[InstantDB] ✓ Updated \(refreshedAttributes.count) attributes from refresh")
+        InstantLog.debug("[InstantDB] ✓ Updated \(refreshedAttributes.count) attributes from refresh")
       }
 
       self.queryManager.handleRefresh(
@@ -440,18 +444,18 @@ public final class InstantClient: ObservableObject {
       )
     }
 
-    print("[InstantDB] ✓ Real-time update delivered (\(computations.count) queries)")
+    InstantLog.debug("[InstantDB] ✓ Real-time update delivered (\(computations.count) queries)")
   }
   
   private func handleError(_ message: ServerMessage) {
     let errorMsg = message.data["message"]?.value as? String ?? "Unknown error"
     let hint = message.data["hint"]?.value as? [String: Any]
 
-    print("[InstantDB] ✗ Server error: \(errorMsg)")
+    InstantLog.error("[InstantDB] ✗ Server error: \(errorMsg)")
     if let hint = hint {
-      print("[InstantDB] ℹ Hint: \(hint)")
+      InstantLog.error("[InstantDB] ℹ Hint: \(hint)")
     }
-    print("[InstantDB] ⚠ Learn more: https://www.instantdb.com/docs")
+    InstantLog.error("[InstantDB] ⚠ Learn more: https://www.instantdb.com/docs")
 
     let error = InstantError.serverError(errorMsg, hint: hint)
 
@@ -475,7 +479,7 @@ public final class InstantClient: ObservableObject {
     // Use typed payload - CodingKeys ensure correct key mapping
     // TypeScript: Reactor.js line 778-793
     guard let roomId = message.data["room-id"]?.value as? String else {
-      print("[InstantDB] join-room-ok missing room-id")
+      InstantLog.warning("[InstantDB] join-room-ok missing room-id")
       return
     }
     
@@ -483,63 +487,63 @@ public final class InstantClient: ObservableObject {
     // It just sets room connected and flushes queued data.
     // Sessions come via refresh-presence messages.
     presence.handleJoinRoomOk(roomId: roomId, data: nil)
-    print("[InstantDB] ✓ Joined room: \(roomId)")
+    InstantLog.debug("[InstantDB] ✓ Joined room: \(roomId)")
   }
   
   private func handleRefreshPresence(_ message: ServerMessage) {
     // TypeScript: Reactor.js line 764-769
     // Key mapping: RefreshPresencePayload.sessions maps to server's "data" key
     // via CodingKeys, preventing the "sessions" vs "data" bug
-    print("[InstantDB] handleRefreshPresence - raw data keys: \(message.data.keys)")
+    InstantLog.debug("[InstantDB] handleRefreshPresence - raw data keys: \(message.data.keys)")
     
     guard let roomId = message.data["room-id"]?.value as? String else {
       // This can happen when server sends a global refresh before room is joined
-      print("[InstantDB] refresh-presence has no room-id, ignoring (global refresh)")
+      InstantLog.debug("[InstantDB] refresh-presence has no room-id, ignoring (global refresh)")
       return
     }
     
     // IMPORTANT: Server sends "data", not "sessions"
     // See RefreshPresencePayload.CodingKeys where sessions = "data"
     guard let sessions = message.data["data"]?.value as? [String: Any] else {
-      print("[InstantDB] refresh-presence for room \(roomId) missing data")
+      InstantLog.warning("[InstantDB] refresh-presence for room \(roomId) missing data")
       return
     }
     
-    print("[InstantDB] refresh-presence for room \(roomId) with \(sessions.count) sessions")
+    InstantLog.debug("[InstantDB] refresh-presence for room \(roomId) with \(sessions.count) sessions")
     presence.handleRefreshPresence(roomId: roomId, sessions: sessions)
-    print("[InstantDB] ✓ Presence refreshed for room: \(roomId)")
+    InstantLog.debug("[InstantDB] ✓ Presence refreshed for room: \(roomId)")
   }
   
   private func handlePatchPresence(_ message: ServerMessage) {
     // TypeScript: Reactor.js line 757-762
     // Key mapping: PatchPresencePayload uses roomId = "room-id", edits = "edits"
-    print("[InstantDB] handlePatchPresence - raw data keys: \(message.data.keys)")
+    InstantLog.debug("[InstantDB] handlePatchPresence - raw data keys: \(message.data.keys)")
     
     guard let roomId = message.data["room-id"]?.value as? String else {
-      print("[InstantDB] patch-presence missing room-id")
+      InstantLog.warning("[InstantDB] patch-presence missing room-id")
       return
     }
     
     guard let edits = message.data["edits"]?.value as? [[Any]] else {
-      print("[InstantDB] patch-presence for room \(roomId) missing edits")
+      InstantLog.warning("[InstantDB] patch-presence for room \(roomId) missing edits")
       return
     }
     
-    print("[InstantDB] patch-presence for room \(roomId) with \(edits.count) edits")
+    InstantLog.debug("[InstantDB] patch-presence for room \(roomId) with \(edits.count) edits")
     presence.handlePatchPresence(roomId: roomId, edits: edits)
-    print("[InstantDB] ✓ Presence patched for room: \(roomId)")
+    InstantLog.debug("[InstantDB] ✓ Presence patched for room: \(roomId)")
   }
   
   private func handleServerBroadcast(_ message: ServerMessage) {
     // TypeScript: Reactor.js line 771-776, 2393-2402
     // The server sends: { "room-id", "topic", "data": { "peer-id", "data": <payload> } }
     // Note: peer-id is INSIDE the data object, not at the top level!
-    print("[InstantDB] handleServerBroadcast - raw data keys: \(message.data.keys)")
+    InstantLog.debug("[InstantDB] handleServerBroadcast - raw data keys: \(message.data.keys)")
     
     guard let roomId = message.data["room-id"]?.value as? String,
           let topic = message.data["topic"]?.value as? String,
           let dataWrapper = message.data["data"]?.value as? [String: Any] else {
-      print("[InstantDB] server-broadcast missing room-id, topic, or data")
+      InstantLog.warning("[InstantDB] server-broadcast missing room-id, topic, or data")
       return
     }
     
@@ -548,9 +552,9 @@ public final class InstantClient: ObservableObject {
     let peerId = dataWrapper["peer-id"] as? String ?? "unknown"
     let payload = dataWrapper["data"] as? [String: Any] ?? [:]
     
-    print("[InstantDB] server-broadcast for room \(roomId), topic: \(topic), peerId: \(peerId)")
+    InstantLog.debug("[InstantDB] server-broadcast for room \(roomId), topic: \(topic), peerId: \(peerId)")
     presence.handleServerBroadcast(roomId: roomId, topic: topic, data: payload, peerId: peerId)
-    print("[InstantDB] ✓ Broadcast received on topic: \(topic)")
+    InstantLog.debug("[InstantDB] ✓ Broadcast received on topic: \(topic)")
   }
   
   private func handleRoomError(_ message: ServerMessage) {
@@ -558,12 +562,12 @@ public final class InstantClient: ObservableObject {
     // Key mapping: JoinRoomErrorPayload uses roomId = "room-id"
     guard let roomId = message.data["room-id"]?.value as? String,
           let errorMsg = message.data["message"]?.value as? String else {
-      print("[InstantDB] room-error missing room-id or message")
+      InstantLog.warning("[InstantDB] room-error missing room-id or message")
       return
     }
     
     presence.handleRoomError(roomId: roomId, error: errorMsg)
-    print("[InstantDB] ✗ Room error for \(roomId): \(errorMsg)")
+    InstantLog.error("[InstantDB] ✗ Room error for \(roomId): \(errorMsg)")
   }
 }
 
@@ -613,9 +617,7 @@ extension InstantClient {
     let namespace = query.namespace
 
     // Wrap callback to decode results automatically
-    let wrappedCallback: QueryCallback = { [weak self] result in
-      guard let self = self else { return }
-
+    let wrappedCallback: QueryCallback = { result in
       if result.isLoading {
         callback(.loading)
         return
@@ -737,9 +739,9 @@ extension InstantClient {
     }
 
     // Debug: log tx-steps being sent
-    print("[InstantDB] Sending transaction with \(txSteps.count) steps:")
+    InstantLog.debug("[InstantDB] Sending transaction with \(txSteps.count) steps:")
     for (index, step) in txSteps.enumerated() {
-      print("[InstantDB]   Step \(index): \(step)")
+      InstantLog.debug("[InstantDB]   Step \(index): \(step)")
     }
 
     let message = TransactMessage(
