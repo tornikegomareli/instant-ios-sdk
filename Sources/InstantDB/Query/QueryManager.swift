@@ -57,7 +57,7 @@ final class QueryManager {
     query: [String: Any],
     callback: @escaping QueryCallback
   ) -> (() -> Void) {
-    let hash = hashQuery(query)
+    let hash = QueryHashing.hash(query)
 
     // If subscription exists, just add callback
     if var existing = subscriptions[hash] {
@@ -186,7 +186,7 @@ final class QueryManager {
     
     // The eventId maps to the NEW subscription request, but the query already exists
     // Find the existing subscription by query hash
-    let hash = hashQuery(query)
+    let hash = QueryHashing.hash(query)
     
     guard let existingSubscription = subscriptions[hash] else {
       InstantLog.warning("[QueryManager] handleQueryExists: no existing subscription found for query")
@@ -233,7 +233,7 @@ final class QueryManager {
         continue
       }
 
-      let hash = hashQuery(query)
+      let hash = QueryHashing.hash(query)
       InstantLog.debug("[QueryManager] looking for subscription with hash: \(hash.prefix(20))... for query: \(query.keys)")
       
       guard var subscription = subscriptions[hash] else {
@@ -332,30 +332,6 @@ final class QueryManager {
   ///
   /// Without canonical hashing, they would produce different hashes and the
   /// server's refresh updates would fail to match the local subscription.
-  private func hashQuery(_ query: [String: Any]) -> String {
-    let canonical = canonicalizeQuery(query)
-    guard let data = try? JSONSerialization.data(withJSONObject: canonical, options: .sortedKeys),
-          let string = String(data: data, encoding: .utf8) else {
-      return UUID().uuidString
-    }
-    return string.hash.description
-  }
-  
-  /// Recursively sorts dictionary keys to create a canonical representation.
-  private func canonicalizeQuery(_ value: Any) -> Any {
-    if let dict = value as? [String: Any] {
-      var result: [String: Any] = [:]
-      for key in dict.keys.sorted() {
-        result[key] = canonicalizeQuery(dict[key]!)
-      }
-      return result
-    } else if let array = value as? [Any] {
-      return array.map { canonicalizeQuery($0) }
-    } else {
-      return value
-    }
-  }
-  
   /// Extracts the order specification from an InstaQL query.
   ///
   /// Query format: `["namespace": ["$": ["order": ["fieldName": "asc|desc"]]]]`
