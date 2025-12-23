@@ -32,6 +32,14 @@ public final class InstantClient: ObservableObject {
 
   /// Offline persistence (query cache + pending mutations)
   private let localStorage: LocalStorage?
+
+  /// Tracks mutations that have been sent but not yet acknowledged by the server.
+  ///
+  /// ## Why This Exists
+  /// When reconnecting, we flush persisted pending mutations back to the server.
+  /// Without tracking in-flight event IDs we can accidentally send the same
+  /// mutation multiple times during rapid reconnects.
+  private var inFlightMutationEventIds: Set<String> = []
   
   /// Presence manager for real-time presence and topics
   public let presence: PresenceManager
@@ -73,6 +81,10 @@ public final class InstantClient: ObservableObject {
     
     setupConnection()
     setupMessageHandlers()
+
+    Task { @MainActor in
+      await self.loadPersistedSchemaIfAvailable()
+    }
 
     connection.connect()
   }
@@ -122,7 +134,15 @@ public final class InstantClient: ObservableObject {
   private func setupConnection() {
     connection.$state
       .sink { [weak self] state in
-        self?.connectionState = state
+        guard let self else { return }
+        self.connectionState = state
+
+        switch state {
+        case .disconnected, .error:
+          self.inFlightMutationEventIds.removeAll()
+        case .connecting, .connected, .authenticated:
+          break
+        }
       }
       .store(in: &cancellables)
 
@@ -285,6 +305,14 @@ public final class InstantClient: ObservableObject {
           let data = try JSONSerialization.data(withJSONObject: attrsData)
           let attrs = try JSONDecoder().decode([Attribute].self, from: data)
           self.attributes = attrs
+
+          if let localStorage {
+            do {
+              try await localStorage.saveAttrs(attrs)
+            } catch {
+              InstantLog.warning("[InstantDB] Failed to persist attributes for offline mode: \(error)")
+            }
+          }
         } catch {
           InstantLog.warning("[InstantDB] Failed to decode attributes: \(error)")
         }
@@ -315,6 +343,11 @@ public final class InstantClient: ObservableObject {
       // Resend all active queries after reconnection
       // This ensures data is refreshed after connection recovery
       self.resendActiveQueries()
+
+      // Flush queued mutations after reconnect.
+      // We intentionally do this after resending queries so that refresh updates
+      // caused by these mutations can be delivered to active subscriptions.
+      await self.flushPendingMutations()
     }
   }
   
@@ -356,6 +389,13 @@ public final class InstantClient: ObservableObject {
         InstantLog.debug("[InstantDB] DEBUG add-query-ok full result:")
         InstantLog.debug(jsonString)
       }
+
+    if let processedTxValue = message.data["processed-tx-id"]?.value,
+       let processedTxId = parseInt64(processedTxValue) {
+      Task { @MainActor in
+        await self.persistAndCleanupProcessedTxId(processedTxId)
+      }
+    }
     
     // Parse result array
     guard let resultArray = message.data["result"]?.value as? [[String: Any]] else {
@@ -406,9 +446,27 @@ public final class InstantClient: ObservableObject {
   }
 
   private func handleTransactOk(_ message: ServerMessage) {
-    guard let txId = message.data["tx-id"]?.value as? Int else {
+    guard let txIdValue = message.data["tx-id"]?.value,
+          let txId = parseInt64(txIdValue) else {
       InstantLog.warning("[InstantDB] Transact-ok missing tx-id")
       return
+    }
+
+    guard let eventId = message.clientEventId else {
+      InstantLog.warning("[InstantDB] Transact-ok missing client-event-id")
+      return
+    }
+
+    inFlightMutationEventIds.remove(eventId)
+
+    if let localStorage {
+      Task { @MainActor in
+        do {
+          try await localStorage.markPendingMutationConfirmed(eventId: eventId, txId: txId)
+        } catch {
+          InstantLog.warning("[InstantDB] Failed to persist transact-ok for \(eventId): \(error)")
+        }
+      }
     }
 
     InstantLog.debug("[InstantDB] ✓ Transaction confirmed: \(txId)")
@@ -436,6 +494,11 @@ public final class InstantClient: ObservableObject {
       }
     }
 
+    let processedTxId: Int64? = {
+      guard let value = message.data["processed-tx-id"]?.value else { return nil }
+      return parseInt64(value)
+    }()
+
     InstantLog.debug("[InstantDB] refresh-ok has \(computations.count) computations")
     for (index, computation) in computations.enumerated() {
       InstantLog.debug("[InstantDB]   computation[\(index)] keys: \(computation.keys)")
@@ -448,6 +511,18 @@ public final class InstantClient: ObservableObject {
       if let refreshedAttributes {
         self.attributes = refreshedAttributes
         InstantLog.debug("[InstantDB] ✓ Updated \(refreshedAttributes.count) attributes from refresh")
+
+        if let localStorage {
+          do {
+            try await localStorage.saveAttrs(refreshedAttributes)
+          } catch {
+            InstantLog.warning("[InstantDB] Failed to persist refreshed attributes: \(error)")
+          }
+        }
+      }
+
+      if let processedTxId {
+        await self.persistAndCleanupProcessedTxId(processedTxId)
       }
 
       self.queryManager.handleRefresh(
@@ -473,6 +548,16 @@ public final class InstantClient: ObservableObject {
 
     if let eventId = message.clientEventId {
       Task { @MainActor in
+        self.inFlightMutationEventIds.remove(eventId)
+
+        if let localStorage {
+          do {
+            try await localStorage.markPendingMutationErrored(eventId: eventId, error: errorMsg)
+          } catch {
+            InstantLog.warning("[InstantDB] Failed to persist pending mutation error for \(eventId): \(error)")
+          }
+        }
+
         self.queryManager.handleQueryError(eventId: eventId, error: error)
       }
     }
@@ -853,6 +938,69 @@ extension InstantClient {
     guard let localStorage else { return nil }
     return try? localStorage.getCachedQueryResultSync(hash: hash)
   }
+
+  // MARK: - Local-first / Offline Support
+
+  private func loadPersistedSchemaIfAvailable() async {
+    guard let localStorage else { return }
+    guard attributes.isEmpty else { return }
+
+    do {
+      let cached = try await localStorage.loadAttrs()
+      guard !cached.isEmpty else { return }
+      attributes = cached
+    } catch {
+      InstantLog.warning("[InstantDB] Failed to load persisted schema attributes: \(error)")
+    }
+  }
+
+  private func flushPendingMutations() async {
+    guard connectionState == .authenticated else { return }
+    guard let localStorage else { return }
+
+    do {
+      let mutations = try await localStorage.loadPendingMutations()
+
+      for mutation in mutations where mutation.txId == nil && mutation.error == nil {
+        let txSteps = mutation.txSteps.map { $0.map(\.value) }
+        trySendPendingMutation(eventId: mutation.eventId, txSteps: txSteps)
+      }
+    } catch {
+      InstantLog.warning("[InstantDB] Failed to load pending mutations for flush: \(error)")
+    }
+  }
+
+  private func trySendPendingMutation(eventId: String, txSteps: [[Any]]) {
+    guard connectionState == .authenticated else { return }
+    guard !inFlightMutationEventIds.contains(eventId) else { return }
+
+    do {
+      let message = TransactMessage(clientEventId: eventId, txSteps: txSteps)
+      try connection.send(message)
+      inFlightMutationEventIds.insert(eventId)
+    } catch {
+      InstantLog.warning("[InstantDB] Failed to send queued mutation \(eventId): \(error)")
+    }
+  }
+
+  private func persistAndCleanupProcessedTxId(_ processedTxId: Int64) async {
+    guard let localStorage else { return }
+
+    do {
+      try await localStorage.setValue(processedTxId, forKey: "processedTxId")
+      try await localStorage.cleanupProcessedMutations(processedTxId: processedTxId)
+    } catch {
+      InstantLog.warning("[InstantDB] Failed to persist processed-tx-id \(processedTxId): \(error)")
+    }
+  }
+
+  private func parseInt64(_ value: Any) -> Int64? {
+    if let int64 = value as? Int64 { return int64 }
+    if let int = value as? Int { return Int64(int) }
+    if let double = value as? Double { return Int64(double) }
+    if let string = value as? String { return Int64(string) }
+    return nil
+  }
 }
 
 // MARK: - Transaction API
@@ -875,6 +1023,16 @@ extension InstantClient {
 
     // Add new attributes to local schema (optimistically)
     attributes.append(contentsOf: newAttributes)
+
+    if let localStorage, !newAttributes.isEmpty {
+      Task { @MainActor in
+        do {
+          try await localStorage.saveAttrs(newAttributes)
+        } catch {
+          InstantLog.warning("[InstantDB] Failed to persist new attributes from transaction: \(error)")
+        }
+      }
+    }
 
     try transact(txSteps)
   }
@@ -899,6 +1057,76 @@ extension InstantClient {
   public func transact(@TransactionBatchBuilder _ build: () -> [TransactionChunk]) throws {
     let chunks = build()
     try transact(chunks)
+  }
+
+  // MARK: - Local-first Transaction API
+
+  /// Applies a transaction locally-first and queues it for sending when online.
+  ///
+  /// ## Semantics
+  /// This mirrors JS core Reactor behavior:
+  /// - The mutation is persisted immediately.
+  /// - If the client is not yet authenticated/online, the mutation is queued.
+  /// - Once the WebSocket session is authenticated, queued mutations are flushed.
+  ///
+  /// - Returns: The client-event-id used to track this mutation on the wire.
+  @discardableResult
+  public func transactLocalFirst(_ chunks: [TransactionChunk]) async throws -> String {
+    await loadPersistedSchemaIfAvailable()
+
+    let (txSteps, newAttributes) = try TransactionTransformer.transform(chunks, attributes: attributes)
+
+    if !newAttributes.isEmpty {
+      attributes.append(contentsOf: newAttributes)
+
+      if let localStorage {
+        do {
+          try await localStorage.saveAttrs(newAttributes)
+        } catch {
+          InstantLog.warning("[InstantDB] Failed to persist new attributes for offline mode: \(error)")
+        }
+      }
+    }
+
+    return try await transactLocalFirst(txSteps)
+  }
+
+  @discardableResult
+  public func transactLocalFirst(_ chunk: TransactionChunk) async throws -> String {
+    try await transactLocalFirst([chunk])
+  }
+
+  @discardableResult
+  public func transactLocalFirst(@TransactionBatchBuilder _ build: () -> [TransactionChunk]) async throws -> String {
+    let chunks = build()
+    return try await transactLocalFirst(chunks)
+  }
+
+  /// Persists a tx-steps transaction and attempts to send it if connected.
+  ///
+  /// This is the primitive used by `transactLocalFirst(_ chunks:)` after
+  /// transforming high-level operations into wire-format steps.
+  @discardableResult
+  public func transactLocalFirst(_ txSteps: [[Any]]) async throws -> String {
+    let eventId = UUID().uuidString
+
+    guard let localStorage else {
+      guard connectionState == .authenticated else {
+        throw InstantError.notAuthenticated
+      }
+
+      let message = TransactMessage(clientEventId: eventId, txSteps: txSteps)
+      try connection.send(message)
+      return eventId
+    }
+
+    let order = try await localStorage.nextPendingMutationOrderIndex()
+    let mutation = PendingMutation(eventId: eventId, txSteps: txSteps, createdAt: Date(), order: order)
+    try await localStorage.savePendingMutation(mutation)
+
+    trySendPendingMutation(eventId: eventId, txSteps: txSteps)
+
+    return eventId
   }
 
   /// Send a transaction to the server
