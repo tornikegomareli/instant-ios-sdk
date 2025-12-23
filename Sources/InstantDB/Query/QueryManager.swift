@@ -63,6 +63,7 @@ final class QueryManager {
   /// - Returns: An unsubscribe function. Call this to remove your callback.
   func subscribe(
     query: [String: Any],
+    emitCachedResult: Bool = true,
     callback: @escaping QueryCallback
   ) -> (() -> Void) {
     let hash = QueryHashing.hash(query)
@@ -83,7 +84,7 @@ final class QueryManager {
     subscriptions[hash] = subscription
     eventIdToHash[eventId] = hash
 
-    if let cached = loadCachedQueryResult(hash: hash) {
+    if emitCachedResult, let cached = loadCachedQueryResult(hash: hash) {
       subscription.updateResult(cached)
       subscriptions[hash] = subscription
     } else {

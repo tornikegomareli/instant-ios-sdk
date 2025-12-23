@@ -668,12 +668,190 @@ extension InstantClient {
     return SubscriptionToken(onCleanup: unsubscribe)
   }
 
+  // MARK: - Query Once API
+
+  /// Runs a query a single time and returns the first non-loading result.
+  ///
+  /// ## Why This Exists
+  /// `queryOnce` is intended for "fetch on demand" UX (e.g. pull-to-refresh,
+  /// background refresh, or imperative reads).
+  ///
+  /// ## Offline Semantics (Parity with JS Core)
+  /// - Subscriptions (`subscribe` / `TypedQuery.values()`) may emit cached results
+  ///   immediately for offline-friendly UX.
+  /// - `queryOnce` fails when offline so callers do not accidentally treat stale
+  ///   cached data as a successful fresh read.
+  ///
+  /// ## Last-Known Data
+  /// When offline (or when a request fails), the thrown `QueryOnceError` may carry
+  /// `lastKnownResult` (if available) so callers can render cached data in an error UI.
+  ///
+  /// - Parameters:
+  ///   - query: The InstaQL query dictionary.
+  ///   - timeout: Maximum time to wait for a server response.
+  /// - Returns: A `QueryResult` containing the query data and page info.
+  public func queryOnce(
+    _ query: [String: Any],
+    timeout: TimeInterval = 15.0
+  ) async throws -> QueryResult {
+    let hash = hashQuery(query)
+
+    if isOfflineForQueryOnce {
+      throw QueryOnceError.offline(
+        queryHash: hash,
+        lastKnownResult: loadCachedQueryResultData(hash: hash)
+      )
+    }
+
+    if let existing = queryManager.getSubscription(hash: hash), !existing.currentResult.isLoading {
+      return existing.currentResult
+    }
+
+    let isAuthenticated = await waitForAuthenticated(timeoutSeconds: min(timeout, 10.0))
+    guard isAuthenticated else {
+      if isOfflineForQueryOnce {
+        throw QueryOnceError.offline(
+          queryHash: hash,
+          lastKnownResult: loadCachedQueryResultData(hash: hash)
+        )
+      }
+
+      throw QueryOnceError.timedOut(
+        queryHash: hash,
+        seconds: timeout,
+        lastKnownResult: loadCachedQueryResultData(hash: hash)
+      )
+    }
+
+    return try await withCheckedThrowingContinuation { continuation in
+      var didFinish = false
+      var unsubscribe: (() -> Void)?
+
+      let callback: QueryCallback = { result in
+        guard !result.isLoading else { return }
+        guard !didFinish else { return }
+        didFinish = true
+
+        unsubscribe?()
+        unsubscribe = nil
+
+        if let error = result.error {
+          continuation.resume(
+            throwing: QueryOnceError.requestFailed(
+              queryHash: hash,
+              message: String(describing: error),
+              lastKnownResult: self.loadCachedQueryResultData(hash: hash)
+            )
+          )
+          return
+        }
+
+        continuation.resume(returning: result)
+      }
+
+      unsubscribe = self.queryManager.subscribe(query: query, emitCachedResult: false, callback: callback)
+
+      guard let subscription = self.queryManager.getSubscription(hash: hash) else {
+        didFinish = true
+        unsubscribe?()
+        unsubscribe = nil
+        continuation.resume(
+          throwing: QueryOnceError.requestFailed(
+            queryHash: hash,
+            message: "Failed to create query subscription.",
+            lastKnownResult: self.loadCachedQueryResultData(hash: hash)
+          )
+        )
+        return
+      }
+
+      do {
+        let message = AddQueryMessage(clientEventId: subscription.eventId, query: query)
+        try self.connection.send(message)
+      } catch {
+        didFinish = true
+        unsubscribe?()
+        unsubscribe = nil
+        continuation.resume(
+          throwing: QueryOnceError.requestFailed(
+            queryHash: hash,
+            message: String(describing: error),
+            lastKnownResult: self.loadCachedQueryResultData(hash: hash)
+          )
+        )
+        return
+      }
+
+      Task { @MainActor in
+        guard !didFinish else { return }
+        try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+        guard !didFinish else { return }
+        didFinish = true
+
+        unsubscribe?()
+        unsubscribe = nil
+
+        continuation.resume(
+          throwing: QueryOnceError.timedOut(
+            queryHash: hash,
+            seconds: timeout,
+            lastKnownResult: self.loadCachedQueryResultData(hash: hash)
+          )
+        )
+      }
+    }
+  }
+
+  /// Runs a typed query once and returns decoded entities.
+  ///
+  /// This is equivalent to calling `queryOnce(query.toQuery())` and decoding the result.
+  public func queryOnce<T: InstantEntity>(
+    _ query: TypedQuery<T>,
+    timeout: TimeInterval = 15.0
+  ) async throws -> TypedResult<T> {
+    let instaqlQuery = query.toQuery()
+    let namespace = query.namespace
+
+    let result = try await queryOnce(instaqlQuery, timeout: timeout)
+    let decoded = result.decode(T.self, from: namespace)
+    let pageInfo = PageInfo(from: result.pageInfo, namespace: namespace)
+
+    return .success(data: decoded, pageInfo: pageInfo)
+  }
+
   /// Computes a canonical hash for query matching.
   ///
   /// This must match the hashing algorithm in QueryManager to ensure
   /// we can look up subscriptions by hash after creating them.
   private func hashQuery(_ query: [String: Any]) -> String {
     QueryHashing.hash(query)
+  }
+
+  private var isOfflineForQueryOnce: Bool {
+    switch connectionState {
+    case .disconnected:
+      return true
+    case .error:
+      return true
+    case .connecting, .connected, .authenticated:
+      return false
+    }
+  }
+
+  private func waitForAuthenticated(timeoutSeconds: TimeInterval) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeoutSeconds)
+    while Date() < deadline {
+      if connectionState == .authenticated { return true }
+      if isOfflineForQueryOnce { return false }
+      try? await Task.sleep(nanoseconds: 100_000_000)
+    }
+
+    return connectionState == .authenticated
+  }
+
+  private func loadCachedQueryResultData(hash: String) -> Data? {
+    guard let localStorage else { return nil }
+    return try? localStorage.getCachedQueryResultSync(hash: hash)
   }
 }
 
