@@ -62,10 +62,6 @@ public final class InstantClient: ObservableObject {
     setupConnection()
     setupMessageHandlers()
 
-    Task {
-      await authManager.restoreAuth()
-    }
-
     connection.connect()
   }
   
@@ -127,9 +123,13 @@ public final class InstantClient: ObservableObject {
     }
 
     connection.onOpen = { [weak self] in
-      self?.sendInitMessage()
-      // Resend room joins on reconnect
-      self?.presence.resendRoomJoins()
+      Task { @MainActor in
+        guard let self = self else { return }
+        await self.authManager.restoreAuth()
+        self.sendInitMessage()
+        // Resend room joins on reconnect
+        self.presence.resendRoomJoins()
+      }
     }
 
     // Set up query manager callback for removing queries

@@ -281,6 +281,20 @@ public struct TypedQuery<T: InstantEntity> {
     return copy
   }
 
+  /// Include nested linked entities in the query results (InstaQL format).
+  ///
+  /// This allows for arbitrary nesting of queries.
+  ///
+  /// - Parameter nested: A dictionary representing the nested query structure.
+  /// - Returns: A new query with the nested links included.
+  public func including(_ nested: [String: Any]) -> TypedQuery<T> {
+    var copy = self
+    for (key, value) in nested {
+      copy.nestedQueries[key] = value
+    }
+    return copy
+  }
+
   /// Convert to InstaQL dictionary format
   func toQuery() -> [String: Any] {
     var inner: [String: Any] = nestedQueries

@@ -96,16 +96,38 @@ public final class TripleStore: @unchecked Sendable {
     let v = triple.value.hashableKey
     
     if hasCardinalityOne {
-      // For cardinality one, replace the entire value map
+      // For cardinality one, check existing value
+      if let existingMap = getInMap(eav, path: [e, a]) as? [AnyHashable: Triple] {
+        // Find the "winner" of the existing values (should only be one, but iterate to be safe)
+        for existingTriple in existingMap.values {
+          if existingTriple.createdAt > triple.createdAt {
+            // Existing is newer, ignore this update
+            return
+          }
+        }
+      }
+      // Replace the entire value map
       setInMap(&eav, path: [e, a], value: [v: triple])
       setInMap(&aev, path: [a, e], value: [v: triple])
     } else {
-      // For cardinality many, add to existing
+      // For cardinality many, check if this specific value exists
+      if let existingTriple = getInMap(eav, path: [e, a, v]) as? Triple {
+        if existingTriple.createdAt > triple.createdAt {
+           // Existing is newer, ignore
+           return
+        }
+      }
+      // Add or overwrite
       setInMap(&eav, path: [e, a, v], value: triple)
       setInMap(&aev, path: [a, e, v], value: triple)
     }
     
     if isRef {
+      // For refs, we effectively do cardinality many in VAE index (mapping value to source entities)
+      // We should check if this specific link (v -> a -> e) exists?
+      // VAE path: [v, a, e] -> Triple.
+      // If we dominated in EAV, we update VAE.
+      // Since we already decided to update (didn't return), we update VAE.
       setInMap(&vae, path: [v, a, e], value: triple)
     }
   }
@@ -120,6 +142,19 @@ public final class TripleStore: @unchecked Sendable {
       let e = triple.entityId
       let a = triple.attributeId
       let v = triple.value.hashableKey
+      
+      // Check for existing triple
+      if let existingTriple = getInMap(eav, path: [e, a, v]) as? Triple {
+          if existingTriple.createdAt > triple.createdAt {
+              // Existing triple is newer than this retraction, ignore retraction
+              return
+          }
+      } else {
+          // If data doesn't exist, we don't need to do anything?
+          // Or should we store a "tombstone"? 
+          // Current implementation just removes from map, so if not present, nothing to do.
+          return
+      }
       
       deleteInMap(&eav, path: [e, a, v])
       deleteInMap(&aev, path: [a, e, v])
@@ -417,8 +452,4 @@ private func deleteInMap(_ map: inout [AnyHashable: [String: [String: Triple]]],
     map.removeValue(forKey: k1)
   }
 }
-
-
-
-
 
