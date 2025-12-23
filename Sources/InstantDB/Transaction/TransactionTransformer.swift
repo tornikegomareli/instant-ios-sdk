@@ -54,16 +54,16 @@ final class TransactionTransformer {
         //    b. A 'ref' but missing reverseIdentity (broken link)
         let isBrokenLink = (fwdAttr.valueType == .ref && (fwdAttr.reverseIdentity == nil || fwdAttr.reverseIdentity?.count ?? 0 < 3))
         let isIncorrectType = (fwdAttr.valueType == .blob && valueType == "ref")
-        
-        if let linkedNs = linkedNamespace, (isBrokenLink || isIncorrectType) {
+	        
+	        if let linkedNs = linkedNamespace, (isBrokenLink || isIncorrectType) {
 
-             // Check if we've already scheduled a repair for this attribute
-             if tempAttrs[key] == nil {
-               let reason = isIncorrectType ? "Incorrect type (blob -> ref)" : "Missing reverse identity"
-               print("[TransactionTransformer] Repairing schema for '\(key)': \(reason)")
-               
-               let revIdentId = UUID().uuidString.lowercased()
-               let reverseIdentity = [revIdentId, linkedNs, entityType]
+	             // Check if we've already scheduled a repair for this attribute
+	             if tempAttrs[key] == nil {
+	               let reason = isIncorrectType ? "Incorrect type (blob -> ref)" : "Missing reverse identity"
+	               InstantLog.debug("[TransactionTransformer] Repairing schema for '\(key)': \(reason)")
+	               
+	               let revIdentId = UUID().uuidString.lowercased()
+	               let reverseIdentity = [revIdentId, linkedNs, entityType]
                
                // Use the existing attribute ID so the server treats this as an update.
                let tempAttr = TempAttribute(

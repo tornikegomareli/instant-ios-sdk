@@ -69,7 +69,7 @@ final class QueryManager {
     }
 
     // Create new subscription
-    var subscription = QuerySubscription(query: query, callback: callback)
+    let subscription = QuerySubscription(query: query, callback: callback)
     let eventId = subscription.eventId
 
     subscriptions[hash] = subscription
@@ -180,7 +180,7 @@ final class QueryManager {
   ///   - query: The query that already exists on the server
   func handleQueryExists(eventId: String?, query: [String: Any]) {
     guard let eventId = eventId else {
-      print("[QueryManager] handleQueryExists: missing eventId")
+      InstantLog.warning("[QueryManager] handleQueryExists: missing eventId")
       return
     }
     
@@ -189,7 +189,7 @@ final class QueryManager {
     let hash = hashQuery(query)
     
     guard let existingSubscription = subscriptions[hash] else {
-      print("[QueryManager] handleQueryExists: no existing subscription found for query")
+      InstantLog.warning("[QueryManager] handleQueryExists: no existing subscription found for query")
       return
     }
     
@@ -198,10 +198,10 @@ final class QueryManager {
     
     // If we have cached data, deliver it to all callbacks (including the new one)
     if !existingSubscription.currentResult.isLoading {
-      print("[QueryManager] handleQueryExists: delivering cached result to callbacks")
+      InstantLog.debug("[QueryManager] handleQueryExists: delivering cached result to callbacks")
       existingSubscription.notifyCallbacks()
     } else {
-      print("[QueryManager] handleQueryExists: subscription exists but still loading")
+      InstantLog.debug("[QueryManager] handleQueryExists: subscription exists but still loading")
     }
   }
 
@@ -216,12 +216,12 @@ final class QueryManager {
   ///   - computations: Array of query/result pairs from the server
   ///   - attributes: Current schema attributes for result processing
   func handleRefresh(computations: [[String: Any]], attributes: [Attribute]) {
-    print("[QueryManager] handleRefresh with \(computations.count) computations, \(subscriptions.count) active subscriptions")
+    InstantLog.debug("[QueryManager] handleRefresh with \(computations.count) computations, \(subscriptions.count) active subscriptions")
     
     // Debug: print all active subscription hashes
     for (hash, sub) in subscriptions {
       if let namespace = sub.query.keys.first {
-        print("[QueryManager]   active subscription: \(namespace) (hash: \(hash.prefix(20))...)")
+        InstantLog.debug("[QueryManager]   active subscription: \(namespace) (hash: \(hash.prefix(20))...)")
       }
     }
     
@@ -229,27 +229,27 @@ final class QueryManager {
     for computation in computations {
       guard let query = computation["instaql-query"] as? [String: Any],
             let resultArray = computation["instaql-result"] as? [[String: Any]] else {
-        print("[QueryManager] computation missing instaql-query or instaql-result")
+        InstantLog.warning("[QueryManager] computation missing instaql-query or instaql-result")
         continue
       }
 
       let hash = hashQuery(query)
-      print("[QueryManager] looking for subscription with hash: \(hash.prefix(20))... for query: \(query.keys)")
+      InstantLog.debug("[QueryManager] looking for subscription with hash: \(hash.prefix(20))... for query: \(query.keys)")
       
       guard var subscription = subscriptions[hash] else {
-        print("[QueryManager] ⚠️ No subscription found for refresh query!")
+        InstantLog.warning("[QueryManager] ⚠️ No subscription found for refresh query!")
         // Debug: try to find a similar subscription
-        for (subHash, sub) in subscriptions {
+        for (_, sub) in subscriptions {
           if sub.query.keys == query.keys {
-            print("[QueryManager]   found subscription with same namespace but different hash")
-            print("[QueryManager]   server query: \(query)")
-            print("[QueryManager]   local query: \(sub.query)")
+            InstantLog.debug("[QueryManager]   found subscription with same namespace but different hash")
+            InstantLog.debug("[QueryManager]   server query: \(query)")
+            InstantLog.debug("[QueryManager]   local query: \(sub.query)")
           }
         }
         continue
       }
 
-      print("[QueryManager] ✓ Found subscription, processing \(resultArray.count) results")
+      InstantLog.debug("[QueryManager] ✓ Found subscription, processing \(resultArray.count) results")
       
       // Extract order from the query for client-side sorting
       let order = extractOrder(from: subscription.query)

@@ -51,7 +51,10 @@ extension TypedQuery {
   /// - The stream reaches completion
   public func values() -> AsyncStream<TypedResult<T>> where T: Sendable {
     guard let client = self.client else {
-      print("[InstantDB] Error: Query was created without an InstantClient instance.")
+      InstantLog.errorOnce(
+        "typed-query.values.missing-client",
+        "[InstantDB] Error: Query was created without an InstantClient instance."
+      )
       return AsyncStream { $0.finish() }
     }
 
