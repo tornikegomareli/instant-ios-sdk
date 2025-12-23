@@ -748,7 +748,19 @@ extension InstantClient {
       query: instaqlQuery
     )
 
-    try connection.send(message)
+    if connectionState == .authenticated {
+      try connection.send(message)
+    } else {
+      // Defer sending until we receive init-ok and become authenticated.
+      //
+      // ## Why This Exists
+      // The server expects `init` to run before we send `add-query`. When a caller
+      // subscribes early (cold start, app foreground, network flap), we still want to:
+      // - Register the subscription locally (so cached results can be emitted immediately),
+      // - Avoid sending an invalid message order over the wire,
+      // - Let `resendActiveQueries()` send the query after init-ok.
+      InstantLog.debug("[InstantDB] subscribe: deferring add-query until authenticated")
+    }
 
     return SubscriptionToken(onCleanup: unsubscribe)
   }
