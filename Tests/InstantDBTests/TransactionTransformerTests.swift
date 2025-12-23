@@ -207,5 +207,65 @@ final class TransactionTransformerTests: XCTestCase {
     }
     XCTAssertNotNil(idTriple, "Should include id triple in update")
   }
+
+  func testRepairsMissingReverseIdentityViaMirroredForwardAttribute() throws {
+    let brokenLinkAttr = Attribute(
+      id: "attr-profilePosts",
+      forwardIdentity: [UUID().uuidString, "profiles", "posts"],
+      reverseIdentity: nil,
+      valueType: .ref,
+      cardinality: .many,
+      unique: false,
+      indexed: false,
+      checkedDataType: nil
+    )
+    let attributes = [brokenLinkAttr]
+
+    let chunk = TransactionChunk(
+      namespace: "posts",
+      id: "post-1",
+      ops: [
+        [
+          "link",
+          "posts",
+          "post-1",
+          ["author": ["id": "profile-1", "namespace": "profiles"]],
+        ],
+      ]
+    )
+
+    let (txSteps, newAttributes) = try TransactionTransformer.transform([chunk], attributes: attributes)
+
+    let addAttrSteps = txSteps.filter { ($0.first as? String) == "add-attr" }
+    XCTAssertEqual(addAttrSteps.count, 1, "Expected a schema repair add-attr step")
+
+    guard let addAttrPayload = addAttrSteps.first?[1] as? [String: Any?] else {
+      XCTFail("Expected add-attr payload to be a [String: Any?] dictionary")
+      return
+    }
+
+    XCTAssertEqual(addAttrPayload["id"] as? String, brokenLinkAttr.id)
+
+    let reverseIdentity = addAttrPayload["reverse-identity"] as? [String]
+    XCTAssertEqual(reverseIdentity?.count ?? 0, 3)
+    XCTAssertEqual(reverseIdentity?[1], "posts")
+    XCTAssertEqual(reverseIdentity?[2], "author")
+
+    let addTripleSteps = txSteps.filter { ($0.first as? String) == "add-triple" }
+    let linkTriple = addTripleSteps.first { step in
+      step.count >= 4
+        && (step[1] as? String) == "profile-1"
+        && (step[2] as? String) == brokenLinkAttr.id
+        && (step[3] as? String) == "post-1"
+    }
+    XCTAssertNotNil(linkTriple, "Expected reverse link to swap entity IDs when using the mirrored forward attribute")
+
+    XCTAssertEqual(newAttributes.count, 1, "Expected the repaired attribute to be returned for local schema merge")
+    XCTAssertEqual(newAttributes.first?.id, brokenLinkAttr.id)
+    XCTAssertEqual(newAttributes.first?.reverseIdentity?.count ?? 0, 3)
+    XCTAssertEqual(newAttributes.first?.reverseIdentity?[1], "posts")
+    XCTAssertEqual(newAttributes.first?.reverseIdentity?[2], "author")
+  }
+
 }
 

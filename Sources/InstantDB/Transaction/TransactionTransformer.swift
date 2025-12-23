@@ -92,6 +92,18 @@ final class TransactionTransformer {
                  ] as [String: Any?]
                ]
                addAttrSteps.append(updateAttrOp)
+
+               let repairedAttr = Attribute(
+                 id: fwdAttr.id,
+                 forwardIdentity: tempAttr.forwardIdentity,
+                 reverseIdentity: tempAttr.reverseIdentity,
+                 valueType: .ref,
+                 cardinality: fwdAttr.cardinality,
+                 unique: tempAttr.unique,
+                 indexed: tempAttr.indexed,
+                 checkedDataType: fwdAttr.checkedDataType
+               )
+               newAttributes.append(repairedAttr)
              }
         }
         
@@ -101,6 +113,71 @@ final class TransactionTransformer {
       // Check reverse identity (for link attributes)
       if let revAttr = findAttributeByReverseIdentity(entityType: entityType, label: label, attributes: attributes) {
         return AttributeLookupResult(attrId: revAttr.id, isReverse: true)
+      }
+
+      // Repair case: We are linking from the reverse side, but the server schema is
+      // missing `reverse-identity`, so we cannot find the attr by reverse identity.
+      //
+      // Example (Microblog):
+      // - Schema has `profiles.posts` as the forward identity.
+      // - We call `posts.link({author: profileId})`.
+      // - If the reverse identity (`posts.author`) is missing, we still want to find
+      //   `profiles.posts` and repair it using the reverse label we are invoking (`author`).
+      if let linkedNs = linkedNamespace,
+         let mirroredForwardAttr = findAttributeByForwardIdentity(entityType: linkedNs, label: entityType, attributes: attributes) {
+        let mirroredKey = "\(linkedNs).\(entityType)"
+        let wantsRef = (valueType == "ref")
+
+        let isBrokenLink = (mirroredForwardAttr.valueType == .ref && (mirroredForwardAttr.reverseIdentity == nil || mirroredForwardAttr.reverseIdentity?.count ?? 0 < 3))
+        let isIncorrectType = (mirroredForwardAttr.valueType == .blob && wantsRef)
+
+        if wantsRef, (isBrokenLink || isIncorrectType), tempAttrs[mirroredKey] == nil {
+          let reason = isIncorrectType ? "Incorrect type (blob -> ref)" : "Missing reverse identity"
+          InstantLog.debug("[TransactionTransformer] Repairing schema for '\(linkedNs).\(entityType)' via reverse label '\(label)': \(reason)")
+
+          let revIdentId = UUID().uuidString.lowercased()
+          let reverseIdentity = [revIdentId, entityType, label]
+
+          let tempAttr = TempAttribute(
+            id: mirroredForwardAttr.id,
+            forwardIdentity: mirroredForwardAttr.forwardIdentity,
+            reverseIdentity: reverseIdentity,
+            valueType: "ref",
+            cardinality: mirroredForwardAttr.cardinality == .many ? "many" : "one",
+            unique: mirroredForwardAttr.unique ?? false,
+            indexed: mirroredForwardAttr.indexed ?? false
+          )
+          tempAttrs[mirroredKey] = tempAttr
+
+          let updateAttrOp: [Any] = [
+            "add-attr",
+            [
+              "id": mirroredForwardAttr.id,
+              "forward-identity": tempAttr.forwardIdentity,
+              "reverse-identity": tempAttr.reverseIdentity,
+              "value-type": tempAttr.valueType,
+              "cardinality": tempAttr.cardinality,
+              "unique?": tempAttr.unique,
+              "index?": tempAttr.indexed,
+              "isUnsynced": true
+            ] as [String: Any?]
+          ]
+          addAttrSteps.append(updateAttrOp)
+
+          let repairedAttr = Attribute(
+            id: mirroredForwardAttr.id,
+            forwardIdentity: tempAttr.forwardIdentity,
+            reverseIdentity: tempAttr.reverseIdentity,
+            valueType: .ref,
+            cardinality: mirroredForwardAttr.cardinality,
+            unique: tempAttr.unique,
+            indexed: tempAttr.indexed,
+            checkedDataType: mirroredForwardAttr.checkedDataType
+          )
+          newAttributes.append(repairedAttr)
+        }
+
+        return AttributeLookupResult(attrId: mirroredForwardAttr.id, isReverse: true)
       }
 
       // Check if we already created a temp attribute
