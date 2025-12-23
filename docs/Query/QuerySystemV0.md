@@ -2,7 +2,15 @@
 
 ## Overview
 
-Version 0 of the query system implements **server-side query execution** without optimistic updates. This follows the admin SDK pattern where the server handles all query processing and returns structured JSON results.
+Version 0 of the query system implements **server-side query execution** without a full
+client-side triple store or offline mode.
+
+The server executes the query and returns **datalog-style results** (join rows / triples).
+The Swift SDK then performs a **client-side assembly step** to produce an InstaQL-like,
+nested JSON shape suitable for decoding into your Swift models.
+
+This hybrid approach keeps the client simpler than the full JavaScript Reactor/store
+architecture, while still supporting linked entity results (e.g. `posts` with `author`).
 
 ## Architecture
 
@@ -17,10 +25,11 @@ Version 0 of the query system implements **server-side query execution** without
     ↓ sends AddQueryMessage
 [Server]
     ↓ executes InstaQL query
-    ↓ returns structured JSON
+    ↓ returns datalog join rows / triples
 [WebSocket]
     ↓ receives add-query-ok
 [QueryManager]
+    ↓ runs InstaQLProcessor to assemble nested data
     ↓ delivers QueryResult
 [iOS App]
     ↓ receives callback with data
@@ -44,7 +53,12 @@ Version 0 of the query system implements **server-side query execution** without
 - Routes server responses to callbacks
 - Handles real-time updates (refresh-ok)
 
-### 4. InstantClient Updates
+### 4. InstaQLProcessor (`Query/InstaQLProcessor.swift`)
+
+- Converts the server's datalog join rows into a nested JSON structure
+- Performs client-side joins for link attributes
+
+### 5. InstantClient Updates
 - New `subscribeQuery(_:callback:)` method
 - Returns unsubscribe function
 - Integrates with QueryManager
@@ -84,6 +98,13 @@ try db.subscribeQuery(query) { result in
 }
 ```
 
+#### Why links can fail to resolve
+
+Link resolution relies on correct schema metadata. In particular, reference attributes
+must include a valid `reverse-identity`. If the server schema is missing reverse identity
+metadata, the processor cannot reliably infer which namespace to join against, and the
+linked value may appear as `nil` in decoded models.
+
 ### Query with Where Clause
 ```swift
 let query = [
@@ -118,6 +139,15 @@ This is a simplified v0 that doesn't include:
 - ❌ Local query execution
 
 These features will be added in v1 when we implement the full client-side triple store.
+
+## Debugging
+
+The SDK keeps stdout quiet by default. To enable verbose debugging logs while working on
+query or schema issues:
+
+```bash
+INSTANTDB_LOG_LEVEL=debug swift test --package-path instant-ios-sdk
+```
 
 ## Testing
 
