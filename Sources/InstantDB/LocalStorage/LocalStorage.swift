@@ -69,6 +69,12 @@ public final class LocalStorage: Sendable {
     config.prepareDatabase { db in
       // Enable WAL mode for better concurrent access
       try db.execute(sql: "PRAGMA journal_mode = WAL")
+      // When multiple InstantDB clients are instantiated with the same app ID
+      // (common in integration tests and multi-window apps), they may open multiple
+      // SQLite connections to the same database file. A small busy timeout makes
+      // those brief write-contention windows deterministic instead of failing with
+      // `SQLITE_BUSY` ("database is locked").
+      try db.execute(sql: "PRAGMA busy_timeout = 5000")
     }
     
     dbQueue = try DatabaseQueue(path: dbPath, configuration: config)
@@ -517,13 +523,7 @@ public final class LocalStorage: Sendable {
   /// - Parameter hash: The query hash
   /// - Returns: The cached result data, or nil if not found
   public func getCachedQueryResult(hash: String) async throws -> Data? {
-    try await dbQueue.write { db in
-      // Update last accessed time
-      try db.execute(
-        sql: "UPDATE query_subs SET last_accessed = ? WHERE hash = ?",
-        arguments: [Date(), hash]
-      )
-      
+    let result: Data? = try await dbQueue.read { db in
       guard let row = try Row.fetchOne(
         db,
         sql: "SELECT result FROM query_subs WHERE hash = ?",
@@ -531,8 +531,17 @@ public final class LocalStorage: Sendable {
       ) else {
         return nil
       }
+
       return row["result"] as? Data
     }
+
+    if result != nil {
+      Task { [hash] in
+        try? await self.touchCachedQuery(hash: hash)
+      }
+    }
+
+    return result
   }
 
   /// Gets a cached query result synchronously.
@@ -549,12 +558,7 @@ public final class LocalStorage: Sendable {
   /// - Parameter hash: The query hash
   /// - Returns: The cached result data, or nil if not found
   public func getCachedQueryResultSync(hash: String) throws -> Data? {
-    try dbQueue.write { db in
-      try db.execute(
-        sql: "UPDATE query_subs SET last_accessed = ? WHERE hash = ?",
-        arguments: [Date(), hash]
-      )
-
+    let result: Data? = try dbQueue.read { db in
       guard let row = try Row.fetchOne(
         db,
         sql: "SELECT result FROM query_subs WHERE hash = ?",
@@ -564,6 +568,23 @@ public final class LocalStorage: Sendable {
       }
 
       return row["result"] as? Data
+    }
+
+    if result != nil {
+      Task { [hash] in
+        try? await self.touchCachedQuery(hash: hash)
+      }
+    }
+
+    return result
+  }
+
+  private func touchCachedQuery(hash: String) async throws {
+    try await dbQueue.write { db in
+      try db.execute(
+        sql: "UPDATE query_subs SET last_accessed = ? WHERE hash = ?",
+        arguments: [Date(), hash]
+      )
     }
   }
   
