@@ -1019,6 +1019,31 @@ extension InstantClient {
 
 extension InstantClient {
 
+  /// Merges attribute updates into the in-memory schema cache.
+  ///
+  /// ## Why This Exists
+  /// Some transactions include schema repairs (e.g. adding a missing `reverse-identity`)
+  /// by emitting an `add-attr` step that reuses an existing attribute ID.
+  ///
+  /// If we only ever append, we can end up with duplicate attribute IDs in memory.
+  /// More importantly, we would keep using stale schema until the next server refresh.
+  private func mergeAttributesById(_ incoming: [Attribute]) {
+    guard !incoming.isEmpty else { return }
+
+    var indexById: [String: Int] = [:]
+    for (index, attr) in attributes.enumerated() {
+      indexById[attr.id] = index
+    }
+
+    for attr in incoming {
+      if let index = indexById[attr.id] {
+        attributes[index] = attr
+      } else {
+        attributes.append(attr)
+      }
+    }
+  }
+
   /// Send a transaction to the server using transaction chunks
   /// - Parameter chunks: Transaction chunks built using the tx builder
   ///
@@ -1034,7 +1059,7 @@ extension InstantClient {
     let (txSteps, newAttributes) = try TransactionTransformer.transform(chunks, attributes: attributes)
 
     // Add new attributes to local schema (optimistically)
-    attributes.append(contentsOf: newAttributes)
+    mergeAttributesById(newAttributes)
 
     if let localStorage, !newAttributes.isEmpty {
       Task { @MainActor in
@@ -1089,7 +1114,7 @@ extension InstantClient {
     let (txSteps, newAttributes) = try TransactionTransformer.transform(chunks, attributes: attributes)
 
     if !newAttributes.isEmpty {
-      attributes.append(contentsOf: newAttributes)
+      mergeAttributesById(newAttributes)
 
       if let localStorage {
         do {
