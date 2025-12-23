@@ -27,6 +27,9 @@ public final class InstantClient: ObservableObject {
   /// Auth manager
   public let authManager: AuthManager
 
+  /// Storage API for file uploads/downloads/deletes.
+  public let storage: StorageAPI
+
   /// Query manager
   private let queryManager: QueryManager
 
@@ -71,7 +74,15 @@ public final class InstantClient: ObservableObject {
     let httpBaseURL = baseURL
       .replacingOccurrences(of: "wss://", with: "https://")
       .replacingOccurrences(of: "ws://", with: "http://")
-    self.authManager = AuthManager(appID: appID, baseURL: httpBaseURL)
+    let authManager = AuthManager(appID: appID, baseURL: httpBaseURL)
+    self.authManager = authManager
+    self.storage = StorageAPI(
+      appID: appID,
+      baseURL: httpBaseURL,
+      refreshTokenProvider: {
+        authManager.refreshToken
+      }
+    )
 
     self.queryManager = QueryManager(localStorage: self.localStorage)
     
