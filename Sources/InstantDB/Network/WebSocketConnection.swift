@@ -8,7 +8,10 @@ private let logger = CompatibilityLogger(subsystem: "com.instantdb.sdk", categor
 public final class WebSocketConnection: NSObject {
   private let url: URL
   private var webSocketTask: URLSessionWebSocketTask?
-  private let urlSession: URLSession
+  private let urlSessionConfiguration: URLSessionConfiguration
+  private lazy var urlSession: URLSession = {
+    URLSession(configuration: urlSessionConfiguration, delegate: self, delegateQueue: nil)
+  }()
   private var isActive = false
   
   /// Current connection state
@@ -65,7 +68,7 @@ public final class WebSocketConnection: NSObject {
     let configuration = URLSessionConfiguration.default
     configuration.timeoutIntervalForRequest = 30
     configuration.timeoutIntervalForResource = 300
-    self.urlSession = URLSession(configuration: configuration)
+    self.urlSessionConfiguration = configuration
     
     self.jsonEncoder = JSONEncoder()
     jsonEncoder.keyEncodingStrategy = .convertToSnakeCase
@@ -92,13 +95,6 @@ public final class WebSocketConnection: NSObject {
 
     webSocketTask = urlSession.webSocketTask(with: url)
     webSocketTask?.resume()
-
-    DispatchQueue.main.async { [weak self] in
-      self?.state = .connected
-      self?.onOpen?()
-    }
-
-    receiveMessage()
   }
   
   /// Disconnect from WebSocket server
@@ -336,6 +332,8 @@ extension WebSocketConnection: URLSessionWebSocketDelegate {
       self?.state = .connected
       self?.onOpen?()
     }
+
+    receiveMessage()
   }
 
   public func urlSession(
