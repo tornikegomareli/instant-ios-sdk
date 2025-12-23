@@ -465,6 +465,38 @@ public final class LocalStorage: Sendable {
       return row["result"] as? Data
     }
   }
+
+  /// Gets a cached query result synchronously.
+  ///
+  /// ## Why This Exists
+  /// `InstantClient.subscribe` is a synchronous API today, but we still want to
+  /// deliver previously cached results as early as possible (JS core semantics:
+  /// subscriptions may emit cached results immediately).
+  ///
+  /// This method enables a best-effort, synchronous cache read on the calling
+  /// thread. Keep the work small: a single keyed lookup and optional touch of
+  /// `last_accessed`.
+  ///
+  /// - Parameter hash: The query hash
+  /// - Returns: The cached result data, or nil if not found
+  public func getCachedQueryResultSync(hash: String) throws -> Data? {
+    try dbQueue.write { db in
+      try db.execute(
+        sql: "UPDATE query_subs SET last_accessed = ? WHERE hash = ?",
+        arguments: [Date(), hash]
+      )
+
+      guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT result FROM query_subs WHERE hash = ?",
+        arguments: [hash]
+      ) else {
+        return nil
+      }
+
+      return row["result"] as? Data
+    }
+  }
   
   /// Clears old cached queries.
   ///
@@ -500,4 +532,3 @@ public final class LocalStorage: Sendable {
     }
   }
 }
-
