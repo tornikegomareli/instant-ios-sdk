@@ -156,10 +156,7 @@ public final class WebSocketConnection: NSObject {
       do {
         try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         guard !Task.isCancelled else { return }
-        
-        await MainActor.run {
-          self?.attemptReconnect()
-        }
+        await self?.attemptReconnect()
       } catch {
         // Task was cancelled, that's fine
       }
@@ -198,9 +195,10 @@ public final class WebSocketConnection: NSObject {
       }
       
       webSocketTask?.send(.string(jsonString)) { [weak self] error in
-        if let error = error {
-          self?.handleError(InstantError.fromConnectionError(error))
-        }
+        guard let self else { return }
+        guard let error else { return }
+        guard self.isActive, !self.isShutdown else { return }
+        self.handleError(InstantError.fromConnectionError(error))
       }
     } catch {
       throw InstantError.encodingError(error)
@@ -221,9 +219,10 @@ public final class WebSocketConnection: NSObject {
       }
       
       webSocketTask?.send(.string(jsonString)) { [weak self] error in
-        if let error = error {
-          self?.handleError(InstantError.fromConnectionError(error))
-        }
+        guard let self else { return }
+        guard let error else { return }
+        guard self.isActive, !self.isShutdown else { return }
+        self.handleError(InstantError.fromConnectionError(error))
       }
     } catch {
       throw InstantError.encodingError(error)
@@ -235,6 +234,7 @@ public final class WebSocketConnection: NSObject {
     
     webSocketTask?.receive { [weak self] result in
       guard let self = self else { return }
+      guard self.isActive, !self.isShutdown else { return }
       
       switch result {
       case .success(let message):
@@ -242,6 +242,7 @@ public final class WebSocketConnection: NSObject {
         self.receiveMessage()
         
       case .failure(let error):
+        guard self.isActive, !self.isShutdown else { return }
         let instantError = InstantError.fromConnectionError(error)
         self.handleError(instantError)
         
@@ -301,8 +302,10 @@ public final class WebSocketConnection: NSObject {
   }
   
   private func handleError(_ error: InstantError) {
+    guard isActive, !isShutdown else { return }
+
     // Log the error for debugging
-    logger.error("Error: \(error.localizedDescription ?? "unknown")")
+    logger.error("Error: \(error.localizedDescription)")
     
     // Log SSL/TLS errors with helpful guidance
     if error.isSSLTrustFailure {

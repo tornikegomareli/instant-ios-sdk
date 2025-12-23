@@ -532,13 +532,13 @@ public struct User: Codable, Equatable, Sendable {
 }
 
 /// App information from the server.
-public struct AppInformation: Codable, Equatable {
+public struct AppInformation: Codable, Equatable, Sendable {
   public let id: String
   public let title: String
 }
 
 /// Authentication state returned from the server after connection.
-public struct AuthInfo: Codable, Equatable {
+public struct AuthInfo: Codable, Equatable, Sendable {
   public let user: User?
   public let app: AppInformation
   public let admin: Bool?
