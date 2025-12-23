@@ -103,6 +103,7 @@ struct InstaQLProcessor {
       let linkLabel: String
       let linkedId: String
       let linkedNamespace: String
+      let cardinality: Cardinality?
     }
     
     var forwardLinks: [RefLink] = []
@@ -118,6 +119,7 @@ struct InstaQLProcessor {
       let value = triple[2]
       
       guard let attr = attrById[attrId] else {
+        print("[InstaQLProcessor] Warning: Attribute ID '\(attrId)' not found in schema. Dropping triple for entity '\(entityId)'.")
         continue
       }
       
@@ -154,7 +156,8 @@ struct InstaQLProcessor {
               parentId: entityId,
               linkLabel: attrName,
               linkedId: linkedId,
-              linkedNamespace: linkedNamespace
+              linkedNamespace: linkedNamespace,
+              cardinality: attr.cardinality
             ))
             
             // Reverse link: child → parent (e.g., posts.author)
@@ -164,8 +167,12 @@ struct InstaQLProcessor {
               parentId: linkedId,
               linkLabel: reverseLabel,
               linkedId: entityId,
-              linkedNamespace: namespace
+              linkedNamespace: namespace,
+              // We don't verify reverse cardinality yet.
+              cardinality: nil
             ))
+          } else {
+            print("[InstaQLProcessor] Warning: Missing or incomplete reverse identity for link '\(attrName)' (attribute: \(attrId)).")
           }
         }
       } else {
@@ -193,11 +200,19 @@ struct InstaQLProcessor {
             entities[link.parentNamespace]?[link.parentId]?[link.linkLabel] = [existingSingle, shallowEntity]
           }
         } else {
-          // First value - store as single entity (has-one)
-          // The TypeScript client uses cardinality inference to decide array vs single
-          // For simplicity, we'll store as single and let the decoder handle it
-          entities[link.parentNamespace]?[link.parentId]?[link.linkLabel] = shallowEntity
+          // First value
+          if link.cardinality == .many {
+             // Explicitly create array for has-many, even if single item
+             entities[link.parentNamespace]?[link.parentId]?[link.linkLabel] = [shallowEntity]
+          } else {
+             // Store as single entity (has-one)
+             entities[link.parentNamespace]?[link.parentId]?[link.linkLabel] = shallowEntity
+          }
         }
+      } else {
+          // [InstaQL] Info: Linked entity not found in result set.
+          // This is common if the linked entity wasn't loaded in the query.
+          // keeping this silent to avoid noise as it's often expected behavior.
       }
     }
     

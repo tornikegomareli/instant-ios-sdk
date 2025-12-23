@@ -293,7 +293,7 @@ public struct ErrorMessage: Codable {
 // MARK: - Helper Types
 
 /// Type-erased Codable wrapper
-public struct AnyCodable: Codable {
+public struct AnyCodable: Codable, @unchecked Sendable {
   public let value: Any
   
   public init(_ value: Any) {

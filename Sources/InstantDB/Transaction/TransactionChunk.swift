@@ -4,7 +4,7 @@ import Foundation
 ///
 /// TransactionChunk is immutable and chainable - each operation returns a new chunk.
 /// This matches the React InstantDB API pattern.
-public struct TransactionChunk {
+public struct TransactionChunk: @unchecked Sendable {
     public let namespace: String
     public let id: String
     public let ops: [[Any]]

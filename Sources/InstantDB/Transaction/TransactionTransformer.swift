@@ -6,6 +6,7 @@ final class TransactionTransformer {
   private struct TempAttribute {
     let id: String
     let forwardIdentity: [String]
+    let reverseIdentity: [String]?
     let valueType: String
     let cardinality: String
     let unique: Bool
@@ -31,15 +32,69 @@ final class TransactionTransformer {
 
     // Helper to get or create attribute (returns just the ID for non-link operations)
     func getOrCreateAttr(entityType: String, label: String) -> String {
-      return getOrCreateAttrWithDirection(entityType: entityType, label: label).attrId
+      return getOrCreateAttrWithDirection(entityType: entityType, label: label, isMany: false, linkedNamespace: nil, valueType: "blob").attrId
     }
     
     // Helper to get or create attribute with direction info (for link operations)
-    func getOrCreateAttrWithDirection(entityType: String, label: String) -> AttributeLookupResult {
+    func getOrCreateAttrWithDirection(entityType: String, label: String, isMany: Bool = false, linkedNamespace: String? = nil, valueType: String = "blob") -> AttributeLookupResult {
       let key = "\(entityType).\(label)"
 
       // Check if attribute exists in schema (forward identity first)
       if let fwdAttr = findAttributeByForwardIdentity(entityType: entityType, label: label, attributes: attributes) {
+        
+        
+        // REPAIR LOGIC: If we found an attribute, but it's a broken link (missing reverseIdentity),
+        // and we have the info to fix it (linkedNamespace), we should issue an update-attr op.
+
+        // Check if repair is needed:
+        // 1. We want a reference (valueType == "ref")
+        // 2. We have the necessary info (linkedNamespace)
+        // 3. The existing attribute is either:
+        //    a. A 'blob' (incorrect type for a link)
+        //    b. A 'ref' but missing reverseIdentity (broken link)
+        let isBrokenLink = (fwdAttr.valueType == .ref && (fwdAttr.reverseIdentity == nil || fwdAttr.reverseIdentity?.count ?? 0 < 3))
+        let isIncorrectType = (fwdAttr.valueType == .blob && valueType == "ref")
+        
+        if let linkedNs = linkedNamespace, (isBrokenLink || isIncorrectType) {
+
+             // Check if we've already scheduled a repair for this attribute
+             if tempAttrs[key] == nil {
+               let reason = isIncorrectType ? "Incorrect type (blob -> ref)" : "Missing reverse identity"
+               print("[TransactionTransformer] Repairing schema for '\(key)': \(reason)")
+               
+               let revIdentId = UUID().uuidString.lowercased()
+               let reverseIdentity = [revIdentId, linkedNs, entityType]
+               
+               // Use the existing attribute ID so the server treats this as an update.
+               let tempAttr = TempAttribute(
+                 id: fwdAttr.id,
+                 forwardIdentity: fwdAttr.forwardIdentity,
+                 reverseIdentity: reverseIdentity,
+                 valueType: "ref",
+                 cardinality: fwdAttr.cardinality == .many ? "many" : "one",
+                 unique: fwdAttr.unique ?? false,
+                 indexed: fwdAttr.indexed ?? false
+               )
+               tempAttrs[key] = tempAttr
+               
+               // Generate update-attr op (same as add-attr but with existing ID)
+               let updateAttrOp: [Any] = [
+                 "add-attr",
+                 [
+                   "id": fwdAttr.id,
+                   "forward-identity": tempAttr.forwardIdentity,
+                   "reverse-identity": tempAttr.reverseIdentity,
+                   "value-type": tempAttr.valueType,
+                   "cardinality": tempAttr.cardinality,
+                   "unique?": tempAttr.unique,
+                   "index?": tempAttr.indexed,
+                   "isUnsynced": true
+                 ] as [String: Any?]
+               ]
+               addAttrSteps.append(updateAttrOp)
+             }
+        }
+        
         return AttributeLookupResult(attrId: fwdAttr.id, isReverse: false)
       }
       
@@ -56,11 +111,26 @@ final class TransactionTransformer {
       // Create new temp attribute (lowercase to match server format)
       let attrId = UUID().uuidString.lowercased()
       let fwdIdentId = UUID().uuidString.lowercased()
+      
+      // If we know the linked namespace, we can create a reverse identity
+      var reverseIdentity: [String]? = nil
+      if let linkedNs = linkedNamespace {
+          let revIdentId = UUID().uuidString.lowercased()
+          // Construct reverse identity: [id, destination_namespace, reverse_label]
+          // Note: We use the same label for reverse direction if simplistic, or ideally we'd infer it.
+          // For now, we'll assume the reverse label is the source entity type (e.g. "posts" for author link)
+          // or we can just use the label. 
+          // InstantDB typically uses explicit reverse labels.
+          // Using the entityType as the reverse label is a reasonable default for dynamic schema.
+          reverseIdentity = [revIdentId, linkedNs, entityType]
+      }
+      
       let tempAttr = TempAttribute(
         id: attrId,
         forwardIdentity: [fwdIdentId, entityType, label],
-        valueType: "blob",
-        cardinality: "one",
+        reverseIdentity: reverseIdentity,
+        valueType: valueType,
+        cardinality: isMany ? "many" : "one",
         unique: label == "id",
         indexed: false
       )
@@ -72,12 +142,13 @@ final class TransactionTransformer {
         [
           "id": attrId,
           "forward-identity": tempAttr.forwardIdentity,
+          "reverse-identity": tempAttr.reverseIdentity,
           "value-type": tempAttr.valueType,
           "cardinality": tempAttr.cardinality,
           "unique?": tempAttr.unique,
           "index?": tempAttr.indexed,
           "isUnsynced": true
-        ] as [String: Any]
+        ] as [String: Any?]
       ]
       addAttrSteps.append(addAttrOp)
 
@@ -85,9 +156,9 @@ final class TransactionTransformer {
       let newAttr = Attribute(
         id: attrId,
         forwardIdentity: tempAttr.forwardIdentity,
-        reverseIdentity: nil,
-        valueType: .blob,
-        cardinality: .one,
+        reverseIdentity: tempAttr.reverseIdentity,
+        valueType: valueType == "ref" ? .ref : .blob,
+        cardinality: isMany ? .many : .one,
         unique: tempAttr.unique,
         indexed: tempAttr.indexed,
         checkedDataType: nil
@@ -112,7 +183,7 @@ final class TransactionTransformer {
   private static func transformOperation(
     _ op: [Any],
     getOrCreateAttr: (String, String) -> String,
-    getOrCreateAttrWithDirection: (String, String) -> AttributeLookupResult
+    getOrCreateAttrWithDirection: (String, String, Bool, String?, String) -> AttributeLookupResult
   ) throws -> [[Any]] {
     guard op.count >= 3,
           let action = op[0] as? String,
@@ -238,11 +309,28 @@ final class TransactionTransformer {
   /// So when we find the attribute via reverse identity, we need to swap the IDs:
   /// - Forward: `["add-triple", entityId, attrId, linkedId]`
   /// - Reverse: `["add-triple", linkedId, attrId, entityId]`
+  /// Expand link operation into add-triple steps
+  ///
+  /// ## Why This Handles Forward vs Reverse Links
+  ///
+  /// In InstantDB, links have two sides defined in the schema:
+  /// - Forward: e.g., `profiles.posts` (Profile has many Posts)
+  /// - Reverse: e.g., `posts.author` (Post has one Profile)
+  ///
+  /// When we do `posts.link({author: profileId})`, we're using the reverse side.
+  /// The attribute is stored as `profiles.posts` with a reverse identity of `posts.author`.
+  ///
+  /// The server expects the triple to be: `[profileId, linkAttrId, postId]` (forward direction)
+  /// But we're calling from the post side: `posts[postId].link({author: profileId})`
+  ///
+  /// So when we find the attribute via reverse identity, we need to swap the IDs:
+  /// - Forward: `["add-triple", entityId, attrId, linkedId]`
+  /// - Reverse: `["add-triple", linkedId, attrId, entityId]`
   private static func expandLink(
     entityType: String,
     entityId: String,
     links: Any?,
-    getOrCreateAttrWithDirection: (String, String) -> AttributeLookupResult
+    getOrCreateAttrWithDirection: (String, String, Bool, String?, String) -> AttributeLookupResult
   ) throws -> [[Any]] {
     guard let linksDict = links as? [String: Any] else {
       throw InstantError.invalidQuery
@@ -251,17 +339,37 @@ final class TransactionTransformer {
     var steps: [[Any]] = []
 
     for (linkName, linkValue) in linksDict {
-      // Handle both single ID and array of IDs
+      // Handle both single ID, array of IDs, and namespaced dictionaries
       let linkIds: [String]
+      let isMany: Bool
+      var linkedNamespace: String? = nil
+      
       if let singleId = linkValue as? String {
         linkIds = [singleId]
+        isMany = false
       } else if let multipleIds = linkValue as? [String] {
         linkIds = multipleIds
+        isMany = true
+      } else if let dict = linkValue as? [String: String],
+                let id = dict["id"],
+                let ns = dict["namespace"] {
+        linkIds = [id]
+        linkedNamespace = ns
+        isMany = false
+      } else if let dictArray = linkValue as? [[String: String]] {
+        linkIds = dictArray.compactMap { $0["id"] }
+        var ns: String? = nil
+        // Assume consistent namespace for array
+        if let first = dictArray.first {
+            ns = first["namespace"]
+        }
+        linkedNamespace = ns
+        isMany = true
       } else {
         continue
       }
 
-      let lookupResult = getOrCreateAttrWithDirection(entityType, linkName)
+      let lookupResult = getOrCreateAttrWithDirection(entityType, linkName, isMany, linkedNamespace, "ref")
       for linkedId in linkIds {
         if lookupResult.isReverse {
           // Reverse link: swap entity IDs
@@ -285,7 +393,7 @@ final class TransactionTransformer {
     entityType: String,
     entityId: String,
     links: Any?,
-    getOrCreateAttrWithDirection: (String, String) -> AttributeLookupResult
+    getOrCreateAttrWithDirection: (String, String, Bool, String?, String) -> AttributeLookupResult
   ) throws -> [[Any]] {
     guard let linksDict = links as? [String: Any] else {
       throw InstantError.invalidQuery
@@ -296,15 +404,19 @@ final class TransactionTransformer {
     for (linkName, linkValue) in linksDict {
       // Handle both single ID and array of IDs
       let linkIds: [String]
+      let isMany: Bool
+      
       if let singleId = linkValue as? String {
         linkIds = [singleId]
+        isMany = false
       } else if let multipleIds = linkValue as? [String] {
         linkIds = multipleIds
+        isMany = true
       } else {
         continue
       }
 
-      let lookupResult = getOrCreateAttrWithDirection(entityType, linkName)
+      let lookupResult = getOrCreateAttrWithDirection(entityType, linkName, isMany, nil, "ref")
       for linkedId in linkIds {
         if lookupResult.isReverse {
           // Reverse link: swap entity IDs
