@@ -276,6 +276,63 @@ public final class LocalStorage: Sendable {
       )
     }
   }
+
+  /// Returns the next order index for a new pending mutation.
+  ///
+  /// ## Why This Exists
+  /// Pending mutations must be replayed in the same order they were created to
+  /// match JS core Reactor semantics and keep transaction replay deterministic
+  /// across app launches.
+  ///
+  /// This is used by local-first transaction APIs to assign `order_index`
+  /// atomically inside SQLite.
+  public func nextPendingMutationOrderIndex() async throws -> Int {
+    try await dbQueue.write { db in
+      let maxOrder: Int? = try Int.fetchOne(db, sql: "SELECT MAX(order_index) FROM pending_mutations")
+      return (maxOrder ?? 0) + 1
+    }
+  }
+
+  /// Marks a pending mutation as confirmed by the server.
+  ///
+  /// ## Why This Exists
+  /// When the server responds with `transact-ok`, we want to record the
+  /// server-assigned tx-id so that future `processed-tx-id` updates can clean up
+  /// confirmed mutations from disk.
+  ///
+  /// - Parameters:
+  ///   - eventId: The client-event-id associated with the mutation
+  ///   - txId: The server tx-id
+  ///   - confirmedAt: Timestamp for the confirmation (defaults to now)
+  public func markPendingMutationConfirmed(
+    eventId: String,
+    txId: Int64,
+    confirmedAt: Date = Date()
+  ) async throws {
+    try await dbQueue.write { db in
+      try db.execute(
+        sql: """
+          UPDATE pending_mutations
+          SET tx_id = ?, confirmed_at = ?
+          WHERE event_id = ?
+          """,
+        arguments: [txId, confirmedAt, eventId]
+      )
+    }
+  }
+
+  /// Records a server-side error for a pending mutation.
+  ///
+  /// This is a best-effort persistence mechanism for debugging and for
+  /// preventing infinite resend loops when a queued mutation is rejected.
+  public func markPendingMutationErrored(eventId: String, error: String) async throws {
+    try await dbQueue.write { db in
+      try db.execute(
+        sql: "UPDATE pending_mutations SET error = ? WHERE event_id = ?",
+        arguments: [error, eventId]
+      )
+    }
+  }
   
   /// Loads all pending mutations from the database.
   ///
@@ -288,12 +345,24 @@ public final class LocalStorage: Sendable {
       )
       return try rows.compactMap { row -> PendingMutation? in
         guard let eventId = row["event_id"] as? String,
-              let txStepsData = row["tx_steps"] as? Data,
-              let createdAt = row["created_at"] as? Date,
-              let order = row["order_index"] as? Int else {
+              let txStepsData = row["tx_steps"] as? Data else {
           return nil
         }
-        
+
+        let createdAt: Date = row["created_at"]
+        let confirmedAt: Date? = row["confirmed_at"]
+        let txId: Int64? = row["tx_id"]
+        let error: String? = row["error"]
+
+        let order: Int
+        if let intOrder = row["order_index"] as? Int {
+          order = intOrder
+        } else if let int64Order = row["order_index"] as? Int64 {
+          order = Int(int64Order)
+        } else {
+          return nil
+        }
+
         let txSteps = try JSONDecoder().decode([[AnyCodableValue]].self, from: txStepsData)
         
         return PendingMutation(
@@ -301,9 +370,9 @@ public final class LocalStorage: Sendable {
           txSteps: txSteps.map { $0.map(\.value) },
           createdAt: createdAt,
           order: order,
-          txId: row["tx_id"] as? Int64,
-          confirmedAt: row["confirmed_at"] as? Date,
-          error: row["error"] as? String
+          txId: txId,
+          confirmedAt: confirmedAt,
+          error: error
         )
       }
     }
