@@ -485,7 +485,7 @@ public func || (lhs: PredicateExpression, rhs: PredicateExpression) -> Predicate
 
 enum ComparisonOperator: String {
   case eq = "$eq"
-  case neq = "$neq"
+  case neq = "$ne"
   case gt = "$gt"
   case gte = "$gte"
   case lt = "$lt"
@@ -507,8 +507,8 @@ struct ComparisonPredicate: PredicateExpression {
 }
 
 enum LogicalOperator: String {
-  case and = "$and"
-  case or = "$or"
+  case and = "and"
+  case or = "or"
 }
 
 struct LogicalPredicate: PredicateExpression {
@@ -517,13 +517,11 @@ struct LogicalPredicate: PredicateExpression {
   let right: PredicateExpression
 
   func toDict() -> [String: Any] {
-    let leftDict = left.toDict()
-    let rightDict = right.toDict()
-
-    var merged: [String: Any] = [:]
-    merged.merge(leftDict) { _, new in new }
-    merged.merge(rightDict) { _, new in new }
-
-    return merged
+    [
+      op.rawValue: [
+        left.toDict(),
+        right.toDict(),
+      ]
+    ]
   }
 }
