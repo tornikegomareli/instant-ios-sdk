@@ -252,7 +252,7 @@ public final class InstantClient: ObservableObject {
   
   /// Disconnect from InstantDB server
   public func disconnect() {
-    connection.disconnect()
+    connection.shutdown()
     isAuthenticated = false
     sessionID = nil
     attributes = []
