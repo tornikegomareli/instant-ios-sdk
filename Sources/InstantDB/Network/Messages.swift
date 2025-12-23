@@ -307,6 +307,8 @@ public struct AnyCodable: Codable, @unchecked Sendable {
       value = bool
     } else if let int = try? container.decode(Int.self) {
       value = int
+    } else if let int64 = try? container.decode(Int64.self) {
+      value = int64
     } else if let double = try? container.decode(Double.self) {
       value = double
     } else if let string = try? container.decode(String.self) {
@@ -328,6 +330,8 @@ public struct AnyCodable: Codable, @unchecked Sendable {
       try container.encode(bool)
     case let int as Int:
       try container.encode(int)
+    case let int64 as Int64:
+      try container.encode(int64)
     case let double as Double:
       try container.encode(double)
     case let string as String:
