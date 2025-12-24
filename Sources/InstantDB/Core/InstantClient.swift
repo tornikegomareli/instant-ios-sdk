@@ -315,11 +315,12 @@ public final class InstantClient: ObservableObject {
         do {
           let data = try JSONSerialization.data(withJSONObject: attrsData)
           let attrs = try JSONDecoder().decode([Attribute].self, from: data)
-          self.attributes = attrs
+          let merged = self.mergingServerAttributes(attrs)
+          self.attributes = merged
 
           if let localStorage {
             do {
-              try await localStorage.saveAttrs(attrs)
+              try await localStorage.saveAttrs(merged)
             } catch {
               InstantLog.warning("[InstantDB] Failed to persist attributes for offline mode: \(error)")
             }
@@ -520,12 +521,13 @@ public final class InstantClient: ObservableObject {
 
     Task { @MainActor in
       if let refreshedAttributes {
-        self.attributes = refreshedAttributes
-        InstantLog.debug("[InstantDB] ✓ Updated \(refreshedAttributes.count) attributes from refresh")
+        let merged = self.mergingServerAttributes(refreshedAttributes)
+        self.attributes = merged
+        InstantLog.debug("[InstantDB] ✓ Updated \(merged.count) attributes from refresh")
 
         if let localStorage {
           do {
-            try await localStorage.saveAttrs(refreshedAttributes)
+            try await localStorage.saveAttrs(merged)
           } catch {
             InstantLog.warning("[InstantDB] Failed to persist refreshed attributes: \(error)")
           }
@@ -538,7 +540,7 @@ public final class InstantClient: ObservableObject {
 
       self.queryManager.handleRefresh(
         computations: computations,
-        attributes: refreshedAttributes ?? self.attributes
+        attributes: self.attributes
       )
     }
 
@@ -1053,6 +1055,74 @@ extension InstantClient {
         attributes.append(attr)
       }
     }
+  }
+
+  /// Returns a merged view of server attributes over the current schema cache.
+  ///
+  /// ## Why This Exists
+  /// InstantDB's query processor performs client-side joins for links, which requires
+  /// accurate attribute metadata (`value-type` and `reverse-identity`).
+  ///
+  /// In practice, we sometimes synthesize "repaired" attributes locally (e.g. when a
+  /// link operation implies a field is a `ref`, but the server schema is still `blob`).
+  ///
+  /// If we overwrite `self.attributes` with every server refresh, UIs can "flip":
+  /// - optimistic/link-aware data shows correctly
+  /// - a later refresh rehydrates from the normalized store using server attrs
+  /// - links resolve to `nil` because the server attrs are missing link metadata
+  ///
+  /// We therefore merge server attributes with the existing cache and prefer the
+  /// most complete definition for link hydration.
+  private func mergingServerAttributes(_ serverAttributes: [Attribute]) -> [Attribute] {
+    guard !serverAttributes.isEmpty else { return attributes }
+
+    var mergedById: [AttributeID: Attribute] = [:]
+    mergedById.reserveCapacity(serverAttributes.count)
+
+    for attr in serverAttributes {
+      mergedById[attr.id] = attr
+    }
+
+    for local in attributes {
+      if let server = mergedById[local.id] {
+        mergedById[local.id] = merge(serverAttribute: server, localAttribute: local)
+      } else {
+        mergedById[local.id] = local
+      }
+    }
+
+    return Array(mergedById.values)
+  }
+
+  private func merge(serverAttribute: Attribute, localAttribute: Attribute) -> Attribute {
+    let mergedReverseIdentity: [String]? = {
+      let serverReverseCount = serverAttribute.reverseIdentity?.count ?? 0
+      let localReverseCount = localAttribute.reverseIdentity?.count ?? 0
+
+      if serverReverseCount >= 3 { return serverAttribute.reverseIdentity }
+      if localReverseCount >= 3 { return localAttribute.reverseIdentity }
+
+      return serverAttribute.reverseIdentity ?? localAttribute.reverseIdentity
+    }()
+
+    let mergedValueType: ValueType = {
+      if serverAttribute.valueType == .ref { return .ref }
+      if localAttribute.valueType == .ref { return .ref }
+      return serverAttribute.valueType
+    }()
+
+    return Attribute(
+      id: serverAttribute.id,
+      forwardIdentity: serverAttribute.forwardIdentity.isEmpty
+        ? localAttribute.forwardIdentity
+        : serverAttribute.forwardIdentity,
+      reverseIdentity: mergedReverseIdentity,
+      valueType: mergedValueType,
+      cardinality: serverAttribute.cardinality,
+      unique: serverAttribute.unique ?? localAttribute.unique,
+      indexed: serverAttribute.indexed ?? localAttribute.indexed,
+      checkedDataType: serverAttribute.checkedDataType ?? localAttribute.checkedDataType
+    )
   }
 
   /// Send a transaction to the server using transaction chunks
