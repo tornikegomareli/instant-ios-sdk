@@ -70,16 +70,17 @@ final class QueryManager {
 
     // If subscription exists, just add callback
     if var existing = subscriptions[hash] {
-      existing.addCallback(callback)
+      let callbackId = existing.addCallback(callback)
       subscriptions[hash] = existing
       return { [weak self] in
-        self?.unsubscribe(hash: hash, callback: callback)
+        self?.unsubscribe(hash: hash, callbackId: callbackId)
       }
     }
 
     // Create new subscription
-    var subscription = QuerySubscription(query: query, callback: callback)
+    var subscription = QuerySubscription(query: query)
     let eventId = subscription.eventId
+    let callbackId = subscription.addCallback(callback)
 
     subscriptions[hash] = subscription
     eventIdToHash[eventId] = hash
@@ -92,7 +93,7 @@ final class QueryManager {
     }
 
     return { [weak self] in
-      self?.unsubscribe(hash: hash, callback: callback)
+      self?.unsubscribe(hash: hash, callbackId: callbackId)
     }
   }
 
@@ -361,18 +362,12 @@ final class QueryManager {
   ///
   /// If no callbacks remain, the subscription is fully removed and the server
   /// is notified via `onRemoveQuery`.
-  private func unsubscribe(hash: String, callback: @escaping QueryCallback) {
+  private func unsubscribe(hash: String, callbackId: UUID) {
     guard var subscription = subscriptions[hash] else {
       return
     }
 
-    // Remove the specific callback
-    // Note: This is a simple implementation - production would need better callback matching
-    subscription.callbacks.removeAll { cb in
-      // Swift doesn't allow comparing closures, so this removes all for now
-      // In production, you'd use a wrapper with an ID
-      return true
-    }
+    subscription.removeCallback(id: callbackId)
 
     // If no callbacks left, remove subscription and notify server
     if subscription.callbacks.isEmpty {
