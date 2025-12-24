@@ -293,7 +293,7 @@ public struct ErrorMessage: Codable {
 // MARK: - Helper Types
 
 /// Type-erased Codable wrapper
-public struct AnyCodable: Codable, @unchecked Sendable {
+public struct AnyCodable: Codable, @unchecked Sendable, Equatable {
   public let value: Any
   
   public init(_ value: Any) {
@@ -348,6 +348,78 @@ public struct AnyCodable: Codable, @unchecked Sendable {
         debugDescription: "Cannot encode value of type \(type(of: value))"
       )
       throw EncodingError.invalidValue(value, context)
+    }
+  }
+
+  public static func == (lhs: AnyCodable, rhs: AnyCodable) -> Bool {
+    Self.areEqual(lhs.value, rhs.value)
+  }
+
+  private static func areEqual(_ lhs: Any, _ rhs: Any) -> Bool {
+    switch (lhs, rhs) {
+    case (is NSNull, is NSNull):
+      return true
+
+    case let (l as Bool, r as Bool):
+      return l == r
+
+    case let (l as Int, r as Int):
+      return l == r
+    case let (l as Int64, r as Int64):
+      return l == r
+    case let (l as Double, r as Double):
+      return l == r
+    case let (l as Int, r as Int64):
+      return Int64(l) == r
+    case let (l as Int64, r as Int):
+      return l == Int64(r)
+    case let (l as Int, r as Double):
+      return Double(l) == r
+    case let (l as Double, r as Int):
+      return l == Double(r)
+    case let (l as Int64, r as Double):
+      return Double(l) == r
+    case let (l as Double, r as Int64):
+      return l == Double(r)
+
+    case let (l as String, r as String):
+      return l == r
+
+    case let (l as [Any], r as [Any]):
+      guard l.count == r.count else { return false }
+      for (left, right) in zip(l, r) {
+        if !areEqual(left, right) { return false }
+      }
+      return true
+
+    case let (l as [AnyCodable], r as [AnyCodable]):
+      guard l.count == r.count else { return false }
+      for (left, right) in zip(l, r) {
+        if !areEqual(left.value, right.value) { return false }
+      }
+      return true
+
+    case let (l as [String: Any], r as [String: Any]):
+      guard l.count == r.count else { return false }
+      for (key, leftValue) in l {
+        guard let rightValue = r[key] else { return false }
+        if !areEqual(leftValue, rightValue) { return false }
+      }
+      return true
+
+    case let (l as [String: AnyCodable], r as [String: AnyCodable]):
+      guard l.count == r.count else { return false }
+      for (key, leftValue) in l {
+        guard let rightValue = r[key] else { return false }
+        if !areEqual(leftValue.value, rightValue.value) { return false }
+      }
+      return true
+
+    case let (l as AnyCodable, r as AnyCodable):
+      return areEqual(l.value, r.value)
+
+    default:
+      return String(describing: lhs) == String(describing: rhs)
     }
   }
 }
