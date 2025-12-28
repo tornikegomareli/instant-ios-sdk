@@ -78,19 +78,20 @@ final class TransactionTransformer {
                tempAttrs[key] = tempAttr
                
                // Generate update-attr op (same as add-attr but with existing ID)
-               let updateAttrOp: [Any] = [
-                 "add-attr",
-                 [
-                   "id": fwdAttr.id,
-                   "forward-identity": tempAttr.forwardIdentity,
-                   "reverse-identity": tempAttr.reverseIdentity,
-                   "value-type": tempAttr.valueType,
-                   "cardinality": tempAttr.cardinality,
-                   "unique?": tempAttr.unique,
-                   "index?": tempAttr.indexed,
-                   "isUnsynced": true
-                 ] as [String: Any?]
+               // Build dictionary without nil values
+               var updateAttrDict: [String: Any] = [
+                 "id": fwdAttr.id,
+                 "forward-identity": tempAttr.forwardIdentity,
+                 "value-type": tempAttr.valueType,
+                 "cardinality": tempAttr.cardinality,
+                 "unique?": tempAttr.unique,
+                 "index?": tempAttr.indexed,
+                 "isUnsynced": true
                ]
+               if let revIdent = tempAttr.reverseIdentity {
+                 updateAttrDict["reverse-identity"] = revIdent
+               }
+               let updateAttrOp: [Any] = ["add-attr", updateAttrDict]
                addAttrSteps.append(updateAttrOp)
 
                let repairedAttr = Attribute(
@@ -149,19 +150,20 @@ final class TransactionTransformer {
           )
           tempAttrs[mirroredKey] = tempAttr
 
-          let updateAttrOp: [Any] = [
-            "add-attr",
-            [
-              "id": mirroredForwardAttr.id,
-              "forward-identity": tempAttr.forwardIdentity,
-              "reverse-identity": tempAttr.reverseIdentity,
-              "value-type": tempAttr.valueType,
-              "cardinality": tempAttr.cardinality,
-              "unique?": tempAttr.unique,
-              "index?": tempAttr.indexed,
-              "isUnsynced": true
-            ] as [String: Any?]
+          // Build dictionary without nil values
+          var mirroredAttrDict: [String: Any] = [
+            "id": mirroredForwardAttr.id,
+            "forward-identity": tempAttr.forwardIdentity,
+            "value-type": tempAttr.valueType,
+            "cardinality": tempAttr.cardinality,
+            "unique?": tempAttr.unique,
+            "index?": tempAttr.indexed,
+            "isUnsynced": true
           ]
+          if let revIdent = tempAttr.reverseIdentity {
+            mirroredAttrDict["reverse-identity"] = revIdent
+          }
+          let updateAttrOp: [Any] = ["add-attr", mirroredAttrDict]
           addAttrSteps.append(updateAttrOp)
 
           let repairedAttr = Attribute(
@@ -214,19 +216,21 @@ final class TransactionTransformer {
       tempAttrs[key] = tempAttr
 
       // Create add-attr operation
-      let addAttrOp: [Any] = [
-        "add-attr",
-        [
-          "id": attrId,
-          "forward-identity": tempAttr.forwardIdentity,
-          "reverse-identity": tempAttr.reverseIdentity,
-          "value-type": tempAttr.valueType,
-          "cardinality": tempAttr.cardinality,
-          "unique?": tempAttr.unique,
-          "index?": tempAttr.indexed,
-          "isUnsynced": true
-        ] as [String: Any?]
+      // Build the attribute dictionary, only including reverse-identity if it exists
+      var attrDict: [String: Any] = [
+        "id": attrId,
+        "forward-identity": tempAttr.forwardIdentity,
+        "value-type": tempAttr.valueType,
+        "cardinality": tempAttr.cardinality,
+        "unique?": tempAttr.unique,
+        "index?": tempAttr.indexed,
+        "isUnsynced": true
       ]
+      if let revIdent = tempAttr.reverseIdentity {
+        attrDict["reverse-identity"] = revIdent
+      }
+      
+      let addAttrOp: [Any] = ["add-attr", attrDict]
       addAttrSteps.append(addAttrOp)
 
       // Also create an Attribute object for local schema

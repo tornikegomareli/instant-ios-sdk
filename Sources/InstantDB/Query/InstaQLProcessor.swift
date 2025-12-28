@@ -104,16 +104,36 @@ struct InstaQLProcessor {
       let linkedId: String
       let linkedNamespace: String
       let cardinality: Cardinality?
+      /// The reverse link label to exclude when creating shallow copies (to avoid circular references)
+      let reverseLinkLabelToExclude: String?
     }
 
+    /// Represents a ref (link) edge extracted from triples.
+    ///
+    /// Contains all the information needed to create both forward and reverse links.
     struct RefEdge {
       let sourceNamespace: String
       let sourceId: String
       let attrName: String
       let attributeId: String
       let linkedId: String
+      
+      /// Forward cardinality from schema (e.g., "one" or "many").
       let cardinality: Cardinality?
+      
       let reverseIdentity: [String]?
+      
+      /// Encodes the reverse side's cardinality.
+      ///
+      /// From server (`instant/server/src/instant/model/schema.clj` lines 199-200):
+      /// ```clojure
+      /// :unique? (= "one" (:has reverse))
+      /// ```
+      ///
+      /// - `true`: reverse has "one" → store as singular entity
+      /// - `false`: reverse has "many" → store as array
+      /// - `nil`: not specified, default to array (safer)
+      let unique: Bool?
     }
     
     var forwardLinks: [RefLink] = []
@@ -167,7 +187,8 @@ struct InstaQLProcessor {
               attributeId: attrId,
               linkedId: linkedId,
               cardinality: attr.cardinality,
-              reverseIdentity: attr.reverseIdentity
+              reverseIdentity: attr.reverseIdentity,
+              unique: attr.unique
             )
           )
         }
@@ -233,11 +254,30 @@ struct InstaQLProcessor {
           linkLabel: edge.attrName,
           linkedId: edge.linkedId,
           linkedNamespace: linkedNamespace,
-          cardinality: edge.cardinality
+          cardinality: edge.cardinality,
+          reverseLinkLabelToExclude: reverseLabel  // Exclude reverse link to avoid circular references
         )
       )
 
       if let reverseLabel {
+        // Derive reverse cardinality from `unique?` field.
+        //
+        // The server encodes link cardinality in `instant/server/src/instant/model/schema.clj` (lines 199-200):
+        // ```clojure
+        // :cardinality (keyword (:has forward))
+        // :unique?     (= "one" (:has reverse))
+        // ```
+        //
+        // So we can derive reverse cardinality:
+        // - unique? = true  → reverse has 'one' → store as singular entity
+        // - unique? = false → reverse has 'many' → store as array
+        // - unique? = nil   → default to 'many' (safer for decoding)
+        //
+        // Example: mediaFilesMedia link
+        // - Forward: MediaFile.media has "one" → cardinality = .one
+        // - Reverse: Media.files has "many" → unique? = false → reverseCardinality = .many
+        let reverseCardinality: Cardinality? = (edge.unique == true) ? .one : .many
+        
         reverseLinks.append(
           RefLink(
             parentNamespace: linkedNamespace,
@@ -245,7 +285,8 @@ struct InstaQLProcessor {
             linkLabel: reverseLabel,
             linkedId: edge.sourceId,
             linkedNamespace: edge.sourceNamespace,
-            cardinality: nil
+            cardinality: reverseCardinality,
+            reverseLinkLabelToExclude: edge.attrName  // Exclude forward link to avoid circular references
           )
         )
       }
@@ -253,11 +294,29 @@ struct InstaQLProcessor {
     
     // Second pass: resolve forward links by nesting linked entities
     // We create shallow copies to avoid circular references
-    for link in forwardLinks {
+    //
+    // IMPORTANT: Sort forward links so that deeper links are processed first.
+    // This ensures that when we nest TranscriptionRun into Media.transcriptionRuns,
+    // the TranscriptionRun already has its `words` array populated.
+    //
+    // Sort by: links whose linkedNamespace appears as parentNamespace in other links should be processed LATER
+    let parentNamespaces = Set(forwardLinks.map { $0.parentNamespace })
+    let sortedForwardLinks = forwardLinks.sorted { a, b in
+      let aIsParent = parentNamespaces.contains(a.linkedNamespace)
+      let bIsParent = parentNamespaces.contains(b.linkedNamespace)
+      // Process non-parents first (leaf entities), then parents
+      if aIsParent != bIsParent {
+        return !aIsParent  // a comes first if it's NOT a parent
+      }
+      return false  // Keep original order for ties
+    }
+    
+    for link in sortedForwardLinks {
       // Look up the linked entity
       if let linkedEntity = entities[link.linkedNamespace]?[link.linkedId] {
-        // Create a shallow copy without link properties to avoid circular references
-        let shallowEntity = createShallowCopy(linkedEntity, excludingLinks: true)
+        // Create a shallow copy, only excluding the reverse link back to parent to avoid circular references
+        // This preserves other nested links (e.g., TranscriptionRun.words when nesting into Media.transcriptionRuns)
+        let shallowEntity = createShallowCopy(linkedEntity, excludingLinks: true, excludingLinkLabel: link.reverseLinkLabelToExclude)
         
         // Check if this is a has-one or has-many relationship
         if let existingValue = entities[link.parentNamespace]?[link.parentId]?[link.linkLabel] {
@@ -291,8 +350,8 @@ struct InstaQLProcessor {
     for link in reverseLinks {
       // Look up the linked entity (the parent in reverse direction)
       if let linkedEntity = entities[link.linkedNamespace]?[link.linkedId] {
-        // Create a shallow copy without link properties to avoid circular references
-        let shallowEntity = createShallowCopy(linkedEntity, excludingLinks: true)
+        // Create a shallow copy, only excluding the forward link back to parent to avoid circular references
+        let shallowEntity = createShallowCopy(linkedEntity, excludingLinks: true, excludingLinkLabel: link.reverseLinkLabelToExclude)
         
         // Ensure the child entity exists
         if entities[link.parentNamespace]?[link.parentId] != nil {
@@ -307,8 +366,12 @@ struct InstaQLProcessor {
               entities[link.parentNamespace]?[link.parentId]?[link.linkLabel] = [existingSingle, shallowEntity]
             }
           } else {
-            // First value - store as single entity (has-one for reverse links typically)
-            entities[link.parentNamespace]?[link.parentId]?[link.linkLabel] = shallowEntity
+            // First value - check cardinality (derived from unique?)
+            if link.cardinality == .many {
+              entities[link.parentNamespace]?[link.parentId]?[link.linkLabel] = [shallowEntity]
+            } else {
+              entities[link.parentNamespace]?[link.parentId]?[link.linkLabel] = shallowEntity
+            }
           }
         }
       }
@@ -353,24 +416,36 @@ struct InstaQLProcessor {
     return instaqlData
   }
   
-  /// Creates a shallow copy of an entity dictionary, optionally excluding nested link properties.
+  /// Creates a shallow copy of an entity dictionary, optionally excluding a specific link to avoid circular references.
   ///
   /// This is used when nesting linked entities to avoid circular references.
   /// For example, when nesting a Profile under Post.author, we don't want the Profile
-  /// to include its own `posts` array (which would contain the Post we're building).
+  /// to include its `posts` array (which would contain the Post we're building).
+  ///
+  /// However, we DO want to preserve other nested links. For example, when nesting
+  /// a TranscriptionRun under Media.transcriptionRuns, we want to keep the `words` array.
   ///
   /// - Parameters:
   ///   - entity: The entity dictionary to copy
   ///   - excludingLinks: If true, excludes properties that are dictionaries or arrays of dictionaries
+  ///   - excludingLinkLabel: If provided, only excludes this specific link label (to avoid circular references)
   /// - Returns: A shallow copy of the entity
-  private static func createShallowCopy(_ entity: [String: Any], excludingLinks: Bool) -> [String: Any] {
+  private static func createShallowCopy(_ entity: [String: Any], excludingLinks: Bool, excludingLinkLabel: String? = nil) -> [String: Any] {
     guard excludingLinks else { return entity }
     
     var copy: [String: Any] = [:]
     for (key, value) in entity {
-      // Skip nested entities (links) - they're dictionaries or arrays of dictionaries
-      if value is [String: Any] || value is [[String: Any]] {
-        continue
+      // If we have a specific link to exclude, only skip that one
+      if let excludeLabel = excludingLinkLabel {
+        if key == excludeLabel && (value is [String: Any] || value is [[String: Any]]) {
+          continue
+        }
+      } else {
+        // Legacy behavior: skip ALL nested entities (links)
+        // This is overly aggressive and strips nested links that should be preserved
+        if value is [String: Any] || value is [[String: Any]] {
+          continue
+        }
       }
       copy[key] = value
     }
