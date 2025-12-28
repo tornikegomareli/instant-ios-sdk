@@ -95,39 +95,28 @@ public final class TripleStore: @unchecked Sendable {
     let a = triple.attributeId
     let v = triple.value.hashableKey
     
+    // NOTE: The JavaScript store does NOT do LWW conflict resolution in addTriple.
+    // It simply overwrites values. The server is the source of truth, and when
+    // server data arrives, it should always be applied.
+    //
+    // The previous implementation compared createdAt timestamps, but this caused
+    // a bug where optimistic updates (with createdAt = Date.now * 10) would always
+    // beat server updates (with createdAt = 0 or Date.now), causing server changes
+    // to be silently ignored after a local mutation.
+    //
+    // - SeeAlso: instant/client/packages/core/src/store.ts addTriple()
+    
     if hasCardinalityOne {
-      // For cardinality one, check existing value
-      if let existingMap = getInMap(eav, path: [e, a]) as? [AnyHashable: Triple] {
-        // Find the "winner" of the existing values (should only be one, but iterate to be safe)
-        for existingTriple in existingMap.values {
-          if existingTriple.createdAt > triple.createdAt {
-            // Existing is newer, ignore this update
-            return
-          }
-        }
-      }
-      // Replace the entire value map
+      // Replace the entire value map for cardinality one
       setInMap(&eav, path: [e, a], value: [v: triple])
       setInMap(&aev, path: [a, e], value: [v: triple])
     } else {
-      // For cardinality many, check if this specific value exists
-      if let existingTriple = getInMap(eav, path: [e, a, v]) as? Triple {
-        if existingTriple.createdAt > triple.createdAt {
-           // Existing is newer, ignore
-           return
-        }
-      }
-      // Add or overwrite
+      // Add or overwrite for cardinality many
       setInMap(&eav, path: [e, a, v], value: triple)
       setInMap(&aev, path: [a, e, v], value: triple)
     }
     
     if isRef {
-      // For refs, we effectively do cardinality many in VAE index (mapping value to source entities)
-      // We should check if this specific link (v -> a -> e) exists?
-      // VAE path: [v, a, e] -> Triple.
-      // If we dominated in EAV, we update VAE.
-      // Since we already decided to update (didn't return), we update VAE.
       setInMap(&vae, path: [v, a, e], value: triple)
     }
   }
@@ -452,4 +441,5 @@ private func deleteInMap(_ map: inout [AnyHashable: [String: [String: Triple]]],
     map.removeValue(forKey: k1)
   }
 }
+
 

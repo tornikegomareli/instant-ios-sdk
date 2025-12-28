@@ -315,6 +315,7 @@ public final class InstantClient: ObservableObject {
         do {
           let data = try JSONSerialization.data(withJSONObject: attrsData)
           let attrs = try JSONDecoder().decode([Attribute].self, from: data)
+          
           let merged = self.mergingServerAttributes(attrs)
           self.attributes = merged
 

@@ -263,23 +263,27 @@ public final class LocalStorage: Sendable {
   /// - Parameter mutation: The mutation to save
   public func savePendingMutation(_ mutation: PendingMutation) async throws {
     try await dbQueue.write { db in
-      let txStepsData = try JSONEncoder().encode(mutation.txSteps)
-      try db.execute(
-        sql: """
-          INSERT OR REPLACE INTO pending_mutations 
-          (event_id, tx_steps, created_at, order_index, tx_id, confirmed_at, error)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          """,
-        arguments: [
-          mutation.eventId,
-          txStepsData,
-          mutation.createdAt,
-          mutation.order,
-          mutation.txId,
-          mutation.confirmedAt,
-          mutation.error
-        ]
-      )
+      do {
+        let txStepsData = try JSONEncoder().encode(mutation.txSteps)
+        try db.execute(
+          sql: """
+            INSERT OR REPLACE INTO pending_mutations 
+            (event_id, tx_steps, created_at, order_index, tx_id, confirmed_at, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+          arguments: [
+            mutation.eventId,
+            txStepsData,
+            mutation.createdAt,
+            mutation.order,
+            mutation.txId,
+            mutation.confirmedAt,
+            mutation.error
+          ]
+        )
+      } catch {
+        throw error
+      }
     }
   }
 
@@ -622,3 +626,4 @@ public final class LocalStorage: Sendable {
     }
   }
 }
+
