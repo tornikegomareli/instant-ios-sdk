@@ -296,3 +296,4 @@ public func encodePresenceData<T: Codable>(_ value: T) -> [String: Any] {
   }
   return [:]
 }
+

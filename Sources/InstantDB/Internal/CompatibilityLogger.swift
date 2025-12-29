@@ -70,3 +70,4 @@ struct CompatibilityLogger {
     }
   }
 }
+
