@@ -488,13 +488,61 @@ extension InstantError {
 ///
 /// Attributes define the shape of data in InstantDB, including field names,
 /// types, cardinality, and indexing options.
+///
+/// ## Server Encoding (Clojure)
+///
+/// The server encodes link attributes in `instant/server/src/instant/model/schema.clj` (lines 199-200):
+/// ```clojure
+/// :cardinality (keyword (:has forward))
+/// :unique?     (= "one" (:has reverse))
+/// ```
+///
+/// - `cardinality`: The forward side's cardinality ("one" or "many")
+/// - `unique?`: `true` if reverse has "one", `false` if reverse has "many"
+///
+/// ## Reverse Cardinality Derivation
+///
+/// Since the server only sends forward cardinality directly, we derive reverse cardinality from `unique?`:
+/// - `unique? = true`  → reverse has cardinality "one" (singular entity)
+/// - `unique? = false` → reverse has cardinality "many" (array of entities)
+///
+/// ## Example: mediaFilesMedia Link
+///
+/// Schema definition:
+/// ```typescript
+/// mediaFilesMedia: {
+///   forward: { on: "mediaFiles", has: "one", label: "media" },
+///   reverse: { on: "media", has: "many", label: "files" }
+/// }
+/// ```
+///
+/// Server encoding:
+/// - `cardinality = "one"` (forward's has)
+/// - `unique? = false` (reverse's has is "many", not "one")
+///
+/// Client interpretation:
+/// - Forward: `MediaFile.media` → singular `Media?`
+/// - Reverse: `Media.files` → array `[MediaFile]?`
 public struct Attribute: Codable, Equatable, Sendable {
   public let id: AttributeID
   public let forwardIdentity: [String]
   public let reverseIdentity: [String]?
   public let valueType: ValueType
+  
+  /// The forward side's cardinality ("one" or "many").
+  /// Encoded directly from the schema's forward.has value.
   public let cardinality: Cardinality
+  
+  /// Encodes the reverse side's cardinality.
+  ///
+  /// Server encodes as: `unique? = (= "one" (:has reverse))`
+  /// - `true`: reverse has "one" (singular relationship)
+  /// - `false`: reverse has "many" (array relationship)
+  /// - `nil`: not a ref attribute or not specified
+  ///
+  /// See: `instant/server/src/instant/model/schema.clj` lines 199-200
   public let unique: Bool?
+  
   public let indexed: Bool?
   public let checkedDataType: String?
 
@@ -504,7 +552,8 @@ public struct Attribute: Codable, Equatable, Sendable {
     case reverseIdentity = "reverse-identity"
     case valueType = "value-type"
     case cardinality
-    case unique
+    /// Server sends "unique?" (Clojure boolean predicate naming convention)
+    case unique = "unique?"
     case indexed
     case checkedDataType = "checked-data-type"
   }
