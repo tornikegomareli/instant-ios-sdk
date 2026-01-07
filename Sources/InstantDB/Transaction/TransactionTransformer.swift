@@ -451,6 +451,7 @@ final class TransactionTransformer {
       }
 
       let lookupResult = getOrCreateAttrWithDirection(entityType, linkName, isMany, linkedNamespace, "ref")
+      
       for linkedId in linkIds {
         if lookupResult.isReverse {
           // Reverse link: swap entity IDs

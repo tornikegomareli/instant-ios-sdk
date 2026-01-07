@@ -92,14 +92,6 @@
             "unique" : false
           },
           "valueType" : "string"
-        },
-        "likesCount" : {
-          "config" : {
-            "indexed" : false,
-            "unique" : false
-          },
-          "required" : true,
-          "valueType" : "number"
         }
       }
     },

@@ -17,7 +17,6 @@ let schema = InstantSchema {
     .field("content", .string)
     .optionalField("imageUrl", .string)
     .field("createdAt", .date, .indexed)
-    .field("likesCount", .number)
   
   Entity("comments")
     .field("text", .string)

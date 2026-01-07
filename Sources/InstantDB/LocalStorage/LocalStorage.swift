@@ -257,6 +257,82 @@ public final class LocalStorage: Sendable {
   }
   
   // MARK: - Pending Mutations
+
+  /**
+   HOW:
+     This implementation is used internally by `InstantClient.transactLocalFirst`.
+
+     The method is intentionally *fast* for high-frequency mutation workloads, like live speech
+     transcription updates, where we may enqueue many mutations per second.
+
+   WHO:
+     GPT-5.2 (Codex CLI), Michael Lustig
+     (Context: Fixing delayed visibility of high-frequency local-first writes)
+
+   WHAT:
+     Stores a monotonic `order_index` counter in the existing `kv` table so we can assign new
+     pending-mutation order values in O(1) time.
+
+     Previously, `nextPendingMutationOrderIndex()` did:
+       `SELECT MAX(order_index) FROM pending_mutations`
+     on every mutation, which is O(n) and becomes a bottleneck as the pending mutation table
+     grows. Under heavy mutation rates this can cause the local-first queue to fall behind
+     real time, making server visibility appear "minutes delayed".
+
+   WHEN:
+     Created: 2026-01-02
+     Last Modified: 2026-01-02
+
+   WHERE:
+     Sources/InstantDB/LocalStorage/LocalStorage.swift
+
+   WHY:
+     Pending mutation ordering must be deterministic across launches, but it must also be
+     efficient for bursty workloads. Persisting a simple counter gives us both:
+     - Deterministic replay ordering (parity with JS Reactor semantics)
+     - O(1) order assignment (no table scans)
+   */
+  private enum PendingMutationOrderIndexKey {
+    static let kvKey = "pendingMutationOrderIndex"
+  }
+
+  /// Returns the next order index for a new pending mutation.
+  ///
+  /// ## Why This Exists
+  /// Pending mutations must be replayed in the same order they were created to
+  /// match JS core Reactor semantics and keep transaction replay deterministic
+  /// across app launches.
+  ///
+  /// ## Performance Note
+  /// This uses an incrementing counter stored in the `kv` table instead of scanning
+  /// `pending_mutations` to find the current max order index.
+  ///
+  /// - Returns: The next monotonic order index.
+  private func nextPendingMutationOrderIndex(in db: Database) throws -> Int {
+    let existingData: Data? = try Row.fetchOne(
+      db,
+      sql: "SELECT value FROM kv WHERE key = ?",
+      arguments: [PendingMutationOrderIndexKey.kvKey]
+    )?["value"]
+
+    let lastOrderIndex: Int
+    if let existingData, let decoded = try? JSONDecoder().decode(Int.self, from: existingData) {
+      lastOrderIndex = decoded
+    } else {
+      let maxOrder: Int? = try Int.fetchOne(db, sql: "SELECT MAX(order_index) FROM pending_mutations")
+      lastOrderIndex = maxOrder ?? 0
+    }
+
+    let nextOrderIndex = lastOrderIndex + 1
+
+    let nextOrderData = try JSONEncoder().encode(nextOrderIndex)
+    try db.execute(
+      sql: "INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)",
+      arguments: [PendingMutationOrderIndexKey.kvKey, nextOrderData]
+    )
+
+    return nextOrderIndex
+  }
   
   /// Saves a pending mutation to the database.
   ///
@@ -298,8 +374,52 @@ public final class LocalStorage: Sendable {
   /// atomically inside SQLite.
   public func nextPendingMutationOrderIndex() async throws -> Int {
     try await dbQueue.write { db in
-      let maxOrder: Int? = try Int.fetchOne(db, sql: "SELECT MAX(order_index) FROM pending_mutations")
-      return (maxOrder ?? 0) + 1
+      try nextPendingMutationOrderIndex(in: db)
+    }
+  }
+
+  /// Enqueues a new pending mutation and assigns its `order_index` atomically.
+  ///
+  /// ## Why This Exists
+  /// `InstantClient.transactLocalFirst(_ txSteps:)` needs to persist pending mutations quickly,
+  /// and the old two-step flow:
+  /// 1) `nextPendingMutationOrderIndex()`
+  /// 2) `savePendingMutation(_:)`
+  /// required *two* SQLite write transactions per mutation.
+  ///
+  /// For high-frequency update streams, that extra transaction overhead can become visible
+  /// as "server writes are delayed", because the local-first queue can't keep up.
+  ///
+  /// This helper assigns the order index and inserts the pending mutation in a single write.
+  ///
+  /// - Returns: The `order_index` assigned to the enqueued mutation.
+  public func enqueuePendingMutation(
+    eventId: String,
+    txSteps: [[Any]],
+    createdAt: Date
+  ) async throws -> Int {
+    try await dbQueue.write { db in
+      let order = try nextPendingMutationOrderIndex(in: db)
+      let txStepsData = try JSONEncoder().encode(txSteps.map { $0.map { AnyCodableValue(value: $0) } })
+
+      try db.execute(
+        sql: """
+          INSERT OR REPLACE INTO pending_mutations
+          (event_id, tx_steps, created_at, order_index, tx_id, confirmed_at, error)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          """,
+        arguments: [
+          eventId,
+          txStepsData,
+          createdAt,
+          order,
+          nil,
+          nil,
+          nil
+        ]
+      )
+
+      return order
     }
   }
 
@@ -626,4 +746,5 @@ public final class LocalStorage: Sendable {
     }
   }
 }
+
 

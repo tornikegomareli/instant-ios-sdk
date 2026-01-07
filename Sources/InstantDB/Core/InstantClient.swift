@@ -12,6 +12,18 @@ public final class InstantClient: ObservableObject {
   /// Current connection state
   @Published public private(set) var connectionState: ConnectionState = .disconnected
   
+  /// Whether the device is currently online (has network connectivity).
+  ///
+  /// ## Why This Exists
+  /// The TypeScript SDK tracks `_isOnline` to:
+  /// - Skip reconnection attempts when offline (saves resources)
+  /// - Queue mutations without timeouts when offline
+  /// - Immediately attempt reconnection when back online
+  ///
+  /// ## TypeScript Reference
+  /// See `instant/client/packages/core/src/Reactor.js` lines 208, 353-377
+  @Published public private(set) var isOnline: Bool = true
+  
   /// Whether client is authenticated
   @Published public private(set) var isAuthenticated = false
   
@@ -43,6 +55,29 @@ public final class InstantClient: ObservableObject {
   /// Without tracking in-flight event IDs we can accidentally send the same
   /// mutation multiple times during rapid reconnects.
   private var inFlightMutationEventIds: Set<String> = []
+
+  /// Whether a pending-mutation flush is currently running.
+  ///
+  /// ## Why This Exists
+  /// `flushPendingMutations()` awaits a SQLite read. Because `InstantClient` is
+  /// `@MainActor`, that `await` yields execution and allows other tasks (like
+  /// `transactLocalFirst`) to run mid-flush.
+  ///
+  /// If new mutations send immediately while a flush is in progress, those newer
+  /// mutations can reach the server before older persisted mutations. This breaks
+  /// the deterministic ordering required for link-heavy workloads and manifests as
+  /// server-side failures like `entityNotFound` (link-before-create), which can
+  /// permanently orphan nested entities.
+  ///
+  /// We prevent this by ensuring *all* persisted mutations are sent via the flush
+  /// loop, in stable `order_index` order (parity with JS Reactor).
+  private var isFlushingPendingMutations: Bool = false
+
+  /// Whether another pending-mutation flush should run after the current one.
+  ///
+  /// This flag is set when new pending mutations are enqueued while we're already
+  /// flushing. The flush loop will re-load pending mutations and continue.
+  private var pendingMutationFlushRequested: Bool = false
   
   /// Presence manager for real-time presence and topics
   public let presence: PresenceManager
@@ -56,14 +91,21 @@ public final class InstantClient: ObservableObject {
   /// - Parameters:
   ///   - appID: Your InstantDB application ID
   ///   - baseURL: Optional custom server URL (default: production)
+  ///   - networkMonitor: Controls online/offline detection for the WebSocket connection.
+  ///   - enableLocalPersistence: Enables SQLite-backed caching for offline/local-first support.
   public init(
     appID: String,
     baseURL: String = "wss://api.instantdb.com",
+    networkMonitor: NetworkMonitorClient = .live,
     enableLocalPersistence: Bool = true
   ) {
     self.appID = appID
     self.baseURL = baseURL
-    self.connection = WebSocketConnection(appID: appID, baseURL: baseURL)
+    self.connection = WebSocketConnection(
+      appID: appID,
+      baseURL: baseURL,
+      networkMonitor: networkMonitor
+    )
 
     if enableLocalPersistence {
       self.localStorage = try? LocalStorage(appId: appID)
@@ -143,6 +185,7 @@ public final class InstantClient: ObservableObject {
   }
   
   private func setupConnection() {
+    // Sync connection state
     connection.$state
       .sink { [weak self] state in
         guard let self else { return }
@@ -156,6 +199,34 @@ public final class InstantClient: ObservableObject {
         }
       }
       .store(in: &cancellables)
+    
+    // Sync online status from connection
+    connection.$isOnline
+      .sink { [weak self] online in
+        guard let self else { return }
+        self.isOnline = online
+      }
+      .store(in: &cancellables)
+    
+    // Handle network status changes
+    //
+    // ## Why This Exists
+    // When the device comes back online, we need to flush any pending mutations
+    // that were queued while offline.
+    //
+    // ## TypeScript Reference
+    // See `instant/client/packages/core/src/Reactor.js` lines 365-376
+    connection.onNetworkStatusChange = { [weak self] isOnline in
+      guard self != nil else { return }
+      
+      InstantLog.info("[InstantDB] Network status changed: \(isOnline ? "online" : "offline")")
+      
+      if isOnline {
+        // Coming back online - connection will auto-reconnect
+        // Pending mutations will be flushed in handleInitOk after reconnection
+        InstantLog.debug("[InstantDB] Device is back online, connection will auto-reconnect")
+      }
+    }
 
     connection.onMessage = { [weak self] message in
       self?.handleServerMessage(message)
@@ -984,21 +1055,43 @@ extension InstantClient {
     guard connectionState == .authenticated else { return }
     guard let localStorage else { return }
 
-    do {
-      let mutations = try await localStorage.loadPendingMutations()
-
-      for mutation in mutations where mutation.txId == nil && mutation.error == nil {
-        let txSteps = mutation.txSteps.map { $0.map(\.value) }
-        trySendPendingMutation(eventId: mutation.eventId, txSteps: txSteps)
-      }
-    } catch {
-      InstantLog.warning("[InstantDB] Failed to load pending mutations for flush: \(error)")
+    // If we're already flushing, request another pass and return. The active
+    // flush will see the flag and perform a second pass to pick up new enqueues.
+    guard !isFlushingPendingMutations else {
+      pendingMutationFlushRequested = true
+      return
     }
+
+    isFlushingPendingMutations = true
+    defer { isFlushingPendingMutations = false }
+
+    repeat {
+      pendingMutationFlushRequested = false
+
+      do {
+        // NOTE: `loadPendingMutations()` is ordered by `order_index` ascending.
+        // We send in that order to ensure deterministic replay and to prevent
+        // link-before-create failures after reconnect.
+        let mutations = try await localStorage.loadPendingMutations()
+
+        for mutation in mutations where mutation.txId == nil && mutation.error == nil {
+          let txSteps = mutation.txSteps.map { $0.map(\.value) }
+          trySendPendingMutation(eventId: mutation.eventId, txSteps: txSteps)
+        }
+      } catch {
+        InstantLog.warning("[InstantDB] Failed to load pending mutations for flush: \(error)")
+        return
+      }
+    } while pendingMutationFlushRequested
   }
 
   private func trySendPendingMutation(eventId: String, txSteps: [[Any]]) {
-    guard connectionState == .authenticated else { return }
-    guard !inFlightMutationEventIds.contains(eventId) else { return }
+    guard connectionState == .authenticated else {
+      return
+    }
+    guard !inFlightMutationEventIds.contains(eventId) else {
+      return
+    }
 
     do {
       let message = TransactMessage(clientEventId: eventId, txSteps: txSteps)
@@ -1234,16 +1327,41 @@ extension InstantClient {
         throw InstantError.notAuthenticated
       }
 
+      // DEBUG: Log tx-steps being sent when localStorage is nil
+      InstantLog.debug("[InstantDB] transactLocalFirst (no localStorage) - Sending \(txSteps.count) steps:")
+      for (index, step) in txSteps.enumerated() {
+        InstantLog.debug("[InstantDB]   Step \(index): \(step)")
+      }
+
       let message = TransactMessage(clientEventId: eventId, txSteps: txSteps)
       try connection.send(message)
       return eventId
     }
 
-    let order = try await localStorage.nextPendingMutationOrderIndex()
-    let mutation = PendingMutation(eventId: eventId, txSteps: txSteps, createdAt: Date(), order: order)
-    try await localStorage.savePendingMutation(mutation)
+    _ = try await localStorage.enqueuePendingMutation(
+      eventId: eventId,
+      txSteps: txSteps,
+      createdAt: Date()
+    )
 
-    trySendPendingMutation(eventId: eventId, txSteps: txSteps)
+    // Do not send this mutation directly.
+    //
+    // ## Why
+    // During reconnect, `handleInitOk` triggers an async flush of persisted pending
+    // mutations. Because that flush awaits SQLite reads, a later call to
+    // `transactLocalFirst` can run mid-flush and (if it sent immediately) would
+    // reach the server before older pending mutations.
+    //
+    // This violates ordering guarantees required for link-heavy workloads and can
+    // lead to deterministic server errors like `entityNotFound` (link-before-create),
+    // resulting in orphaned nested entities.
+    //
+    // Instead, request a flush. The flush loop is responsible for sending pending
+    // mutations in stable `order_index` order (parity with JS Reactor).
+    pendingMutationFlushRequested = true
+    Task { @MainActor in
+      await self.flushPendingMutations()
+    }
 
     return eventId
   }
