@@ -112,6 +112,11 @@ extension QueryResult {
   ///
   /// 3. **Nested entities**: Link fields contain nested entity dictionaries that
   ///    also need preprocessing.
+  ///
+  /// 4. **Incomplete linked entities**: When filtering by linked entity attributes
+  ///    (e.g., `where: { "board.id": someId }`), the server returns partial linked
+  ///    entity data (just `id`). These "ghost" entities would fail to decode because
+  ///    required fields are missing. We filter them out by setting the field to nil.
   private func preprocessEntity(_ entity: [String: Any]) -> [String: Any] {
     var processed = entity
     for (key, value) in entity {
@@ -124,11 +129,25 @@ extension QueryResult {
       }
       // Recursively process nested entities (from links)
       else if let nestedEntity = value as? [String: Any] {
-        processed[key] = preprocessEntity(nestedEntity)
+        // Filter out incomplete "ghost" entities that only have an "id" field.
+        // These occur when a where clause references a linked entity (e.g., board.id)
+        // but the entity wasn't explicitly requested via .with().
+        if nestedEntity.count <= 1 && nestedEntity["id"] != nil {
+          processed[key] = NSNull()
+        } else {
+          processed[key] = preprocessEntity(nestedEntity)
+        }
       }
       // Process arrays of nested entities (from has-many links)
       else if let nestedEntities = value as? [[String: Any]] {
-        processed[key] = nestedEntities.map { preprocessEntity($0) }
+        // Filter out incomplete entities from the array
+        let filtered = nestedEntities.compactMap { nested -> [String: Any]? in
+          if nested.count <= 1 && nested["id"] != nil {
+            return nil
+          }
+          return preprocessEntity(nested)
+        }
+        processed[key] = filtered
       }
     }
     return processed

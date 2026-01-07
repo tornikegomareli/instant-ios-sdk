@@ -50,19 +50,19 @@ final class ConnectionTests: XCTestCase {
     XCTAssertEqual(json?["app-id"] as? String, "test-app-id")
   }
   
-  func testAttributeDecoding() throws {
-    let json = """
-        {
-            "id": "attr-123",
-            "forward-identity": ["id", "users", "email"],
-            "reverse-identity": null,
-            "value-type": "string",
-            "cardinality": "one",
-            "unique": true,
-            "indexed": true,
-            "checked-data-type": "string"
-        }
-        """
+	  func testAttributeDecoding() throws {
+	    let json = """
+	        {
+	            "id": "attr-123",
+	            "forward-identity": ["id", "users", "email"],
+	            "reverse-identity": null,
+	            "value-type": "string",
+	            "cardinality": "one",
+	            "unique?": true,
+	            "indexed": true,
+	            "checked-data-type": "string"
+	        }
+	        """
     
     let decoder = JSONDecoder()
     decoder.keyDecodingStrategy = .convertFromSnakeCase
