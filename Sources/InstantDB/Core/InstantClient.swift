@@ -1120,6 +1120,40 @@ extension InstantClient {
     if let string = value as? String { return Int64(string) }
     return nil
   }
+
+  // MARK: - Pending Mutations Access
+
+  /// Returns all pending mutations that haven't been confirmed by the server.
+  ///
+  /// ## Why This Exists
+  /// When the app restarts, the sharing-instant Reactor needs to restore pending
+  /// mutations to its local TripleStore for immediate display. Without this,
+  /// optimistic updates made before app restart won't be visible until the server
+  /// confirms them (which requires network connectivity).
+  ///
+  /// This follows the TypeScript SDK pattern where `pendingMutations` are merged
+  /// into query results before display.
+  ///
+  /// ## Usage
+  /// ```swift
+  /// let pending = await client.getUnconfirmedPendingMutations()
+  /// for mutation in pending {
+  ///   // Apply to local store for immediate display
+  ///   applyOptimisticUpdate(mutation.txSteps)
+  /// }
+  /// ```
+  ///
+  /// - Returns: Pending mutations with `txId == nil` (not yet confirmed)
+  public func getUnconfirmedPendingMutations() async -> [PendingMutation] {
+    guard let localStorage else { return [] }
+    do {
+      let all = try await localStorage.loadPendingMutations()
+      return all.filter { $0.txId == nil && $0.error == nil }
+    } catch {
+      InstantLog.warning("[InstantDB] Failed to load pending mutations: \(error)")
+      return []
+    }
+  }
 }
 
 // MARK: - Transaction API
