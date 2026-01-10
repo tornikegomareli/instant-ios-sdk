@@ -77,12 +77,80 @@ extension QueryResult {
     guard !entities.isEmpty else { return [] }
 
     do {
-      let jsonData = try JSONSerialization.data(withJSONObject: entities)
-      return try JSONDecoder().decode([T].self, from: jsonData)
+      // Pre-process entities to handle InstantDB-specific data quirks
+      let processedEntities = entities.map { entity -> [String: Any] in
+        preprocessEntity(entity)
+      }
+      
+      let jsonData = try JSONSerialization.data(withJSONObject: processedEntities)
+      let decoder = JSONDecoder()
+      // InstantDB stores dates as milliseconds since epoch
+      decoder.dateDecodingStrategy = .millisecondsSince1970
+      return try decoder.decode([T].self, from: jsonData)
     } catch {
-      print("[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)")
+      InstantLog.warningOnce(
+        "query-result.decode.\(namespace).\(String(reflecting: T.self))",
+        "[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)"
+      )
       return []
     }
+  }
+  
+  /// Pre-processes an entity dictionary to handle InstantDB data quirks.
+  ///
+  /// ## Why This Exists
+  ///
+  /// InstantDB's server (Clojure/EDN based) has some JSON encoding quirks:
+  ///
+  /// 1. **Timestamps**: Stored as Double (fractional milliseconds) which JSONDecoder
+  ///    can't handle with `.millisecondsSince1970` strategy (expects Int).
+  ///
+  /// 2. **Boolean/Number confusion**: InstantDB's server sometimes returns numbers
+  ///    (0/1) for boolean fields. We don't convert these at preprocessing time
+  ///    because we don't know the target type. Instead, entities should use
+  ///    `FlexibleBool` or custom decoders if they have boolean fields.
+  ///
+  /// 3. **Nested entities**: Link fields contain nested entity dictionaries that
+  ///    also need preprocessing.
+  ///
+  /// 4. **Incomplete linked entities**: When filtering by linked entity attributes
+  ///    (e.g., `where: { "board.id": someId }`), the server returns partial linked
+  ///    entity data (just `id`). These "ghost" entities would fail to decode because
+  ///    required fields are missing. We filter them out by setting the field to nil.
+  private func preprocessEntity(_ entity: [String: Any]) -> [String: Any] {
+    var processed = entity
+    for (key, value) in entity {
+      // Convert Double timestamps to Int (truncate fractional part)
+      // This handles fields like createdAt, updatedAt, etc.
+      if let doubleValue = value as? Double,
+         doubleValue > 1_000_000_000_000 {
+        // Likely a millisecond timestamp (> year 2001)
+        processed[key] = Int(doubleValue)
+      }
+      // Recursively process nested entities (from links)
+      else if let nestedEntity = value as? [String: Any] {
+        // Filter out incomplete "ghost" entities that only have an "id" field.
+        // These occur when a where clause references a linked entity (e.g., board.id)
+        // but the entity wasn't explicitly requested via .with().
+        if nestedEntity.count <= 1 && nestedEntity["id"] != nil {
+          processed[key] = NSNull()
+        } else {
+          processed[key] = preprocessEntity(nestedEntity)
+        }
+      }
+      // Process arrays of nested entities (from has-many links)
+      else if let nestedEntities = value as? [[String: Any]] {
+        // Filter out incomplete entities from the array
+        let filtered = nestedEntities.compactMap { nested -> [String: Any]? in
+          if nested.count <= 1 && nested["id"] != nil {
+            return nil
+          }
+          return preprocessEntity(nested)
+        }
+        processed[key] = filtered
+      }
+    }
+    return processed
   }
 
   /// Decode single entity from namespace
@@ -93,6 +161,8 @@ extension QueryResult {
   /// ```swift
   /// let goal: Goal? = result.decodeFirst(Goal.self, from: "goals")
   /// ```
+  ///
+  /// - Note: Uses milliseconds since epoch for date decoding to match InstantDB's format.
   public func decodeFirst<T: Decodable>(_ type: T.Type, from namespace: String) -> T? {
     decode(type, from: namespace).first
   }
@@ -121,7 +191,10 @@ extension QueryResult {
       let jsonData = try JSONSerialization.data(withJSONObject: entities)
       return try decoder.decode([T].self, from: jsonData)
     } catch {
-      print("[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)")
+      InstantLog.warningOnce(
+        "query-result.decode.\(namespace).\(String(reflecting: T.self))",
+        "[InstantDB] Failed to decode \(namespace) to [\(T.self)]: \(error)"
+      )
       return []
     }
   }

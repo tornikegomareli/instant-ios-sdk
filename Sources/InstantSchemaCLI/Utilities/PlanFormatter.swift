@@ -52,14 +52,11 @@ enum PlanFormatter {
   }
   
   static func formatDescription(_ step: SchemaPlanStep) -> String {
-    if let forwardIdentity = step.details["forward-identity"] as? [Any],
-       forwardIdentity.count >= 3 {
-      let entity = forwardIdentity[1] as? String ?? "?"
-      let attr = forwardIdentity[2] as? String ?? "?"
-      return Terminal.bold("\(entity)") + ".\(attr)"
+    if let identity = step.details.forwardIdentity {
+      return Terminal.bold("\(identity.entityName)") + ".\(identity.attributeName)"
     }
     
-    if let attrId = step.details["attr-id"] as? String {
+    if let attrId = step.details.attrId {
       return attrId
     }
     
@@ -69,15 +66,15 @@ enum PlanFormatter {
   static func formatSecondaryDetails(_ step: SchemaPlanStep) -> String? {
     var details: [String] = []
     
-    if let valueType = step.details["value-type"] as? String {
+    if let valueType = step.details.valueType {
       details.append("type: \(valueType)")
     }
     
-    if let indexed = step.details["indexed"] as? Bool, indexed {
+    if step.details.indexed == true {
       details.append("indexed")
     }
     
-    if let unique = step.details["unique"] as? Bool, unique {
+    if step.details.unique == true {
       details.append("unique")
     }
     

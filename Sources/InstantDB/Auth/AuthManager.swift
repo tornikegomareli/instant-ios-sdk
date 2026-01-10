@@ -12,13 +12,15 @@ public final class AuthManager: ObservableObject {
   private let appID: String
   private let baseURL: String
 
-  private static let tokenKey = "instant_refresh_token"
+  private static let legacyTokenKey = "instant_refresh_token"
+  private let tokenKey: String
 
   public init(appID: String, baseURL: String = "https://api.instantdb.com") {
     self.appID = appID
     self.baseURL = baseURL
     self.keychain = KeychainStorage()
     self.authAPI = AuthAPI(appID: appID, baseURL: baseURL)
+    self.tokenKey = "instant_refresh_token_\(appID)"
   }
 
   /// Current authenticated user
@@ -29,12 +31,26 @@ public final class AuthManager: ObservableObject {
   /// Restore authentication from stored token
   public func restoreAuth() async {
     do {
-      guard let token = try keychain.retrieve(String.self, forKey: Self.tokenKey) else {
+      if let token = try keychain.retrieve(String.self, forKey: tokenKey) {
+        let user = try await verifyToken(token)
+
+        if user.isGuest {
+          self.state = .guest(user)
+        } else {
+          self.state = .authenticated(user)
+        }
+        return
+      }
+
+      guard let legacyToken = try keychain.retrieve(String.self, forKey: Self.legacyTokenKey) else {
         self.state = .unauthenticated
         return
       }
 
-      let user = try await verifyToken(token)
+      let user = try await verifyToken(legacyToken)
+
+      try keychain.save(legacyToken, forKey: tokenKey)
+      try keychain.delete(forKey: Self.legacyTokenKey)
 
       if user.isGuest {
         self.state = .guest(user)
@@ -43,7 +59,8 @@ public final class AuthManager: ObservableObject {
       }
 
     } catch {
-      print("[InstantDB] Failed to restore auth: \(error)")
+      InstantLog.warning("[InstantDB] Failed to restore auth: \(error)")
+      try? clearAuth()
       self.state = .unauthenticated
     }
   }
@@ -54,7 +71,7 @@ public final class AuthManager: ObservableObject {
       throw InstantError.invalidMessage
     }
 
-    try keychain.save(token, forKey: Self.tokenKey)
+    try keychain.save(token, forKey: tokenKey)
 
     if user.isGuest {
       state = .guest(user)
@@ -65,13 +82,13 @@ public final class AuthManager: ObservableObject {
 
   /// Clear authentication
   func clearAuth() throws {
-    try keychain.delete(forKey: Self.tokenKey)
+    try keychain.delete(forKey: tokenKey)
     state = .unauthenticated
   }
 
   /// Get current refresh token if available
   var refreshToken: String? {
-    try? keychain.retrieve(String.self, forKey: Self.tokenKey)
+    try? keychain.retrieve(String.self, forKey: tokenKey)
   }
 
   private func verifyToken(_ token: String) async throws -> User {

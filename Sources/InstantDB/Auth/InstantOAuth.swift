@@ -5,6 +5,10 @@
 //  Created by Tornike Gomareli on 29.10.25.
 //
 
+// ASWebAuthenticationSession and ASPresentationAnchor are not available on watchOS
+// ASWebAuthenticationPresentationContextProviding and related APIs are not available on tvOS
+#if !os(watchOS) && !os(tvOS)
+
 import Foundation
 import AuthenticationServices
 
@@ -40,3 +44,5 @@ public final class InstantOAuth {
     return try await session.authenticate(presentationAnchor: presentationAnchor)
   }
 }
+
+#endif

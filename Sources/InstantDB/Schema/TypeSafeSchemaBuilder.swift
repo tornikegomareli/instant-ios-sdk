@@ -1,6 +1,21 @@
 import Foundation
 
-public struct TypedEntity<E: InstantEntitySchema>: Sendable {
+/// A type-safe wrapper for entity schema definitions.
+///
+/// ## Sendable Conformance
+///
+/// This type uses `@unchecked Sendable` because it stores a metatype (`E.Type`).
+/// Metatypes in Swift are inherently immutable - they represent type information
+/// that cannot change at runtime. However, Swift 6's strict concurrency checking
+/// does not automatically recognize metatypes as `Sendable`.
+///
+/// According to Swift's type system documentation, metatypes are singleton values
+/// that exist for the lifetime of the program. The value `E.Type` is the same
+/// across all threads and cannot be mutated, making it safe to share.
+///
+/// - SeeAlso: [Swift Language Reference - Types](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/types/#Metatype-Type)
+/// - SeeAlso: [SE-0302: Sendable and @Sendable closures](https://github.com/apple/swift-evolution/blob/main/proposals/0302-concurrent-value-and-concurrent-closures.md)
+public struct TypedEntity<E: InstantEntitySchema>: @unchecked Sendable {
     public let entityType: E.Type
     public let attributeConfigs: [TypedAttributeConfig]
 
@@ -67,7 +82,6 @@ public struct TypedAttributeConfig: Sendable {
 }
 
 public func Attr<E: InstantEntitySchema, V>(_ keyPath: KeyPath<E, V>) -> TypedAttributeConfig {
-    let mirror = Mirror(reflecting: keyPath)
     let name = extractPropertyName(from: keyPath) ?? "unknown"
     return TypedAttributeConfig(name: name)
 }
@@ -99,7 +113,21 @@ public struct TypedAttributeBuilder {
     }
 }
 
-public struct TypedLinkBuilder<From: InstantEntitySchema, To: InstantEntitySchema>: Sendable {
+/// A type-safe builder for defining links between entities.
+///
+/// ## Sendable Conformance
+///
+/// This type uses `@unchecked Sendable` because it stores metatypes
+/// (`From.Type`, `To.Type`). Metatypes are compile-time type information
+/// that cannot be mutated at runtime, making them inherently thread-safe.
+///
+/// Swift 6's concurrency checker cannot automatically verify metatype safety
+/// because `Type.self` values don't have explicit `Sendable` conformance in
+/// the type system. This is a known limitation being tracked by the Swift team.
+///
+/// - SeeAlso: [Swift Language Reference - Types](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/types/#Metatype-Type)
+/// - SeeAlso: [Swift Forums: Metatype Sendability Discussion](https://forums.swift.org/t/so-what-does-sendable-mean/54959)
+public struct TypedLinkBuilder<From: InstantEntitySchema, To: InstantEntitySchema>: @unchecked Sendable {
     private let fromType: From.Type
     private let forwardLabel: String
     private var forwardCardinality: Cardinality = .one

@@ -34,7 +34,8 @@ public actor PlatformAPI {
 
     let steps = rawSteps.map { array -> SchemaPlanStep in
       let type = array.first as? String ?? "unknown"
-      let details = array.count > 1 ? (array[1] as? [String: Any] ?? [:]) : [:]
+      let rawDetails = array.count > 1 ? (array[1] as? [String: Any] ?? [:]) : [:]
+      let details = SchemaPlanStepDetails(fromJSON: rawDetails)
       return SchemaPlanStep(type: type, details: details)
     }
 
@@ -104,24 +105,107 @@ public enum PlatformAPIError: Error, LocalizedError {
   }
 }
 
-public struct SchemaPlanResponse {
+public struct SchemaPlanResponse: Sendable {
   public let steps: [SchemaPlanStep]
 }
 
-public struct SchemaPlanStep {
-  public let type: String
-  public let details: [String: Any]
+/// Represents the identity of an attribute in a schema plan step.
+/// Contains the namespace ID, entity name, and attribute name.
+public struct AttributeIdentity: Sendable, Equatable {
+  public let namespaceId: String
+  public let entityName: String
+  public let attributeName: String
+  
+  public init(namespaceId: String, entityName: String, attributeName: String) {
+    self.namespaceId = namespaceId
+    self.entityName = entityName
+    self.attributeName = attributeName
+  }
+}
 
+/// Type-safe details for a schema plan step.
+/// 
+/// The InstantDB API returns step details as a dictionary with known keys.
+/// This struct provides type-safe access to those fields, eliminating the
+/// need for `[String: Any]` and enabling proper `Sendable` conformance.
+public struct SchemaPlanStepDetails: Sendable, Equatable {
+  /// The identity of the attribute being modified (entity.attribute).
+  public let forwardIdentity: AttributeIdentity?
+  
+  /// The attribute ID for existing attributes.
+  public let attrId: String?
+  
+  /// The data type of the attribute (e.g., "string", "number", "boolean").
+  public let valueType: String?
+  
+  /// Whether the attribute is indexed.
+  public let indexed: Bool?
+  
+  /// Whether the attribute has a unique constraint.
+  public let unique: Bool?
+  
+  public init(
+    forwardIdentity: AttributeIdentity? = nil,
+    attrId: String? = nil,
+    valueType: String? = nil,
+    indexed: Bool? = nil,
+    unique: Bool? = nil
+  ) {
+    self.forwardIdentity = forwardIdentity
+    self.attrId = attrId
+    self.valueType = valueType
+    self.indexed = indexed
+    self.unique = unique
+  }
+  
+  /// Parse from raw JSON dictionary returned by InstantDB API.
+  /// 
+  /// The API returns details as `[String: Any]`. This initializer extracts
+  /// the known fields into a type-safe structure.
+  public init(fromJSON json: [String: Any]) {
+    // Parse forward-identity: [namespaceId, entityName, attributeName, ...]
+    if let identity = json["forward-identity"] as? [Any], identity.count >= 3 {
+      self.forwardIdentity = AttributeIdentity(
+        namespaceId: identity[0] as? String ?? "",
+        entityName: identity[1] as? String ?? "",
+        attributeName: identity[2] as? String ?? ""
+      )
+    } else {
+      self.forwardIdentity = nil
+    }
+    
+    self.attrId = json["attr-id"] as? String
+    self.valueType = json["value-type"] as? String
+    self.indexed = json["indexed"] as? Bool
+    self.unique = json["unique"] as? Bool
+  }
+}
+
+/// Represents a single step in a schema migration plan.
+///
+/// Each step describes one change to be made to the schema, such as
+/// adding an attribute, creating an index, or setting a unique constraint.
+public struct SchemaPlanStep: Sendable, Equatable {
+  /// The type of schema change (e.g., "add-attr", "index", "unique").
+  public let type: String
+  
+  /// Type-safe details about the schema change.
+  public let details: SchemaPlanStepDetails
+
+  public init(type: String, details: SchemaPlanStepDetails) {
+    self.type = type
+    self.details = details
+  }
+  
+  /// A human-readable description of this step.
   public var friendlyDescription: String? {
-    if let forwardIdentity = details["forward-identity"] as? [Any], forwardIdentity.count >= 3 {
-      let entity = forwardIdentity[1] as? String ?? "?"
-      let attr = forwardIdentity[2] as? String ?? "?"
-      return "\(type): \(entity).\(attr)"
+    if let identity = details.forwardIdentity {
+      return "\(type): \(identity.entityName).\(identity.attributeName)"
     }
     return type
   }
 }
 
-public struct SchemaPushResponse {
+public struct SchemaPushResponse: Sendable {
   public let steps: [SchemaPlanStep]?
 }

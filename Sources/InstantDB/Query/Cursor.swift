@@ -37,14 +37,19 @@ public struct Cursor: Sendable, Equatable, Hashable {
 
 /// Internal wrapper for Any values that need Sendable conformance
 /// Uses @unchecked because cursor values are always primitives (String, Int, Double, Bool)
-struct AnyCodableValue: @unchecked Sendable, Equatable, Hashable {
-  let value: Any
+public struct AnyCodableValue: @unchecked Sendable, Equatable, Hashable {
+  public let value: Any
 
-  init(_ value: Any) {
+  public init(_ value: Any) {
+    self.value = value
+  }
+  
+  /// Alias for consistency with other initializers
+  public init(value: Any) {
     self.value = value
   }
 
-  static func == (lhs: AnyCodableValue, rhs: AnyCodableValue) -> Bool {
+  public static func == (lhs: AnyCodableValue, rhs: AnyCodableValue) -> Bool {
     switch (lhs.value, rhs.value) {
     case let (l as String, r as String):
       return l == r
@@ -59,7 +64,58 @@ struct AnyCodableValue: @unchecked Sendable, Equatable, Hashable {
     }
   }
 
-  func hash(into hasher: inout Hasher) {
+  public func hash(into hasher: inout Hasher) {
     hasher.combine(String(describing: value))
+  }
+}
+
+// MARK: - AnyCodableValue Codable
+
+extension AnyCodableValue: Codable {
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    
+    if container.decodeNil() {
+      value = NSNull()
+    } else if let bool = try? container.decode(Bool.self) {
+      value = bool
+    } else if let int = try? container.decode(Int64.self) {
+      value = int
+    } else if let double = try? container.decode(Double.self) {
+      value = double
+    } else if let string = try? container.decode(String.self) {
+      value = string
+    } else if let array = try? container.decode([AnyCodableValue].self) {
+      value = array.map(\.value)
+    } else if let dict = try? container.decode([String: AnyCodableValue].self) {
+      value = dict.mapValues(\.value)
+    } else {
+      throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode AnyCodableValue")
+    }
+  }
+  
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    
+    switch value {
+    case is NSNull:
+      try container.encodeNil()
+    case let bool as Bool:
+      try container.encode(bool)
+    case let int as Int:
+      try container.encode(int)
+    case let int64 as Int64:
+      try container.encode(int64)
+    case let double as Double:
+      try container.encode(double)
+    case let string as String:
+      try container.encode(string)
+    case let array as [Any]:
+      try container.encode(array.map { AnyCodableValue($0) })
+    case let dict as [String: Any]:
+      try container.encode(dict.mapValues { AnyCodableValue($0) })
+    default:
+      try container.encode(String(describing: value))
+    }
   }
 }
