@@ -1,13 +1,24 @@
 # InstantDB iOS SDK
 
-> **Early Development Warning**: This SDK is in very early development (v0.1 Beta). Server-side execution only. No offline support, no optimistic updates yet.
+A Swift SDK for [InstantDB](https://instantdb.com) - build real-time, offline-first applications for Apple platforms.
 
-A Swift SDK for [InstantDB](https://instantdb.com) - build real-time applications
+[![Swift 5.9+](https://img.shields.io/badge/Swift-5.9+-orange.svg)](https://swift.org)
+[![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20macOS%20%7C%20tvOS%20%7C%20watchOS-blue.svg)](https://developer.apple.com)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+## Features
+
+- **Real-time sync** - Instant data synchronization across all clients
+- **Offline-first** - Works offline with automatic sync when reconnected
+- **Optimistic updates** - Instant UI feedback with automatic rollback on failure
+- **Presence system** - Real-time collaboration with room-based presence
+- **Type-safe** - Swift macros for compile-time safety
+- **Multi-platform** - iOS, macOS, tvOS, and watchOS support
 
 ## Installation
 
 ```swift
-.package(url: "https://github.com/instantdb/instant-ios-sdk", from: "0.1.2")
+.package(url: "https://github.com/instantdb/instant-ios-sdk", from: "0.2.0")
 ```
 
 ## Setup
@@ -172,12 +183,136 @@ instant-schema push --app-id <id> --token <admin token>
 
 ```
 
+## Presence (Real-Time Collaboration)
+
+Build collaborative features with room-based presence:
+
+```swift
+// Join a room and subscribe to presence updates
+let leaveRoom = db.presence.subscribePresence(
+    roomId: "canvas-123",
+    initialPresence: ["x": 100, "y": 200, "color": "blue"]
+) { presenceSlice in
+    // presenceSlice contains all peers' presence data
+    for (peerId, peerData) in presenceSlice {
+        print("Peer \(peerId): \(peerData)")
+    }
+}
+
+// Update your presence
+db.presence.publishPresence(roomId: "canvas-123", data: ["x": 150, "y": 250])
+
+// Leave room when done
+leaveRoom()
+```
+
+### Typed Presence API
+
+```swift
+struct CursorPresence: Codable, Sendable {
+    var x: Double
+    var y: Double
+    var color: String
+}
+
+// Type-safe presence subscription
+let cleanup = db.presence.subscribeTypedPresence(
+    roomId: "canvas-123",
+    type: CursorPresence.self,
+    initialPresence: CursorPresence(x: 100, y: 200, color: "blue")
+) { peers in
+    for (peerId, cursor) in peers {
+        // cursor is CursorPresence, fully typed
+        drawCursor(at: cursor.x, cursor.y, color: cursor.color)
+    }
+}
+```
+
+### Topic Pub/Sub (Broadcast)
+
+```swift
+// Subscribe to a topic for ephemeral messages
+let unsub = db.presence.subscribeTopic(roomId: "chat-room", topic: "reactions") { payload in
+    if let emoji = payload["emoji"] as? String {
+        showReaction(emoji)
+    }
+}
+
+// Publish to topic (broadcast to all peers)
+db.presence.publishTopic(roomId: "chat-room", topic: "reactions", data: ["emoji": "🎉"])
+```
+
+## Storage (File Upload/Download)
+
+Upload and manage files:
+
+```swift
+// Upload file data
+let fileId = try await db.storage.uploadFile(
+    path: "photos/avatar.jpg",
+    data: imageData,
+    options: .init(contentType: "image/jpeg")
+)
+
+// Upload from file URL
+let fileId = try await db.storage.uploadFile(
+    path: "documents/report.pdf",
+    fileURL: localFileURL
+)
+
+// Get signed download URL
+let downloadURL = try await db.storage.downloadURL(path: "photos/avatar.jpg")
+
+// Delete a file
+let deletedId = try await db.storage.deleteFile(path: "photos/avatar.jpg")
+```
+
+## Offline Support & Optimistic Updates
+
+The SDK works offline by default:
+
+- **Optimistic updates** - Mutations apply immediately to UI
+- **Offline queue** - Transactions queue while offline
+- **Auto-sync** - Queued mutations sync when reconnected
+- **Query caching** - Query results persist across sessions
+
+```swift
+// This works even offline - UI updates immediately
+try db.transact {
+    Todo.create(title: "Buy groceries")
+}
+// Transaction queues and syncs when online
+```
+
+## Connection Status
+
+Monitor connection state using Combine:
+
+```swift
+import Combine
+
+var cancellables = Set<AnyCancellable>()
+
+db.$connectionState
+    .sink { state in
+        switch state {
+        case .disconnected:
+            print("Offline - changes will sync when reconnected")
+        case .connecting:
+            print("Connecting...")
+        case .connected:
+            print("Connected, authenticating...")
+        case .authenticated:
+            print("Online and ready")
+        }
+    }
+    .store(in: &cancellables)
+```
+
 ## Limitations
 
-- No offline mode
-- No optimistic updates
-- No storage API
-- No permission management
+- No permission rule management from SDK (use dashboard or TypeScript SDK)
+- watchOS/tvOS: No Google Sign-In (Apple Sign-In and Magic Code work)
 
 ## Troubleshooting
 
@@ -211,8 +346,8 @@ and then it will apply refreshed schema data from `refresh-ok` before recomputin
 - [ ] Advanced where operators (`$in`, `$like`, `$isNull`, `and`/`or`)
 - [x] Ordering/sorting by indexed fields
 - [ ] Field projection (select specific attributes)
-- [ ] Nested queries on linked entities
-- [ ] `queryOnce()` for one-time reads
+- [x] Nested queries on linked entities
+- [x] `queryOnce()` for one-time reads
 
 ### Schema & Tooling
 - [x] Schema definition DSL in Swift
@@ -221,21 +356,27 @@ and then it will apply refreshed schema data from `refresh-ok` before recomputin
 - [ ] Query/transaction validation against schema
 
 ### Real-Time Collaboration
-- [ ] Presence system (`joinRoom`, `publishPresence`, `subscribePresence`)
-- [ ] Pub/Sub topics (`publishTopic`, `subscribeTopic`)
-- [ ] Room management
-- [ ] Connection status monitoring
+- [x] Presence system (`joinRoom`, `publishPresence`, `subscribePresence`)
+- [x] Pub/Sub topics (`publishTopic`, `subscribeTopic`)
+- [x] Room management
+- [x] Connection status monitoring
 
 ### Storage & Files
-- [ ] File upload (`db.storage.upload`)
-- [ ] File delete (`db.storage.delete`)
-- [ ] Signed URL generation
+- [x] File upload URL generation
+- [x] File delete
+- [x] Download URL generation
 
 ### Local-First
-- [ ] Local triple store (SQLite)
-- [ ] Optimistic updates
-- [ ] Offline mode with sync
-- [ ] Conflict resolution
+- [x] Local triple store (GRDB/SQLite)
+- [x] Optimistic updates
+- [x] Offline mode with sync
+- [ ] Conflict resolution (server-wins currently)
+
+### Platform & Quality
+- [ ] SwiftUI property wrappers (`@Query`, `@Presence`)
+- [ ] GitHub Actions CI/CD
+- [ ] DocC documentation
+- [ ] 80%+ test coverage
 
 ## Links
 
