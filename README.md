@@ -83,8 +83,6 @@ for await result in db.query(Goal.self).values() {
     self.goals = result.data
 }
 
-/// With filters
-/// PS - U can't use comparison operator until property is not indexed in instant db. 
 for await result in db.query(Goal.self)
     .where { $0.difficulty > 5 }
     .limit(10)
@@ -92,6 +90,8 @@ for await result in db.query(Goal.self)
     self.goals = result.data
 }
 ```
+
+> **Note:** Comparison operators require the field to be indexed in InstantDB.
 
 Callback-based:
 
@@ -130,26 +130,21 @@ try db.transact([
 ## Auth
 
 ```swift
-// Magic code
 try await db.authManager.sendMagicCode(email: "user@example.com")
 try await db.authManager.signInWithMagicCode(email: email, code: code)
 
-// Sign in with Apple/Google
 try await db.authManager.signInWithIdToken(clientName: "apple", idToken: token)
 
-// Guest
 try await db.authManager.signInAsGuest()
 
-// Sign out
 try await db.authManager.signOut()
 ```
 
 ## Schema Definition
 
-Define your schema using the Swift
+Define your schema in Swift:
 
 ```swift
-// instant.schema.swift
 import InstantDB
 
 let schema = InstantSchema {
@@ -188,21 +183,17 @@ instant-schema push --app-id <id> --token <admin token>
 Build collaborative features with room-based presence:
 
 ```swift
-// Join a room and subscribe to presence updates
 let leaveRoom = db.presence.subscribePresence(
     roomId: "canvas-123",
     initialPresence: ["x": 100, "y": 200, "color": "blue"]
 ) { presenceSlice in
-    // presenceSlice contains all peers' presence data
     for (peerId, peerData) in presenceSlice {
         print("Peer \(peerId): \(peerData)")
     }
 }
 
-// Update your presence
 db.presence.publishPresence(roomId: "canvas-123", data: ["x": 150, "y": 250])
 
-// Leave room when done
 leaveRoom()
 ```
 
@@ -215,14 +206,12 @@ struct CursorPresence: Codable, Sendable {
     var color: String
 }
 
-// Type-safe presence subscription
 let cleanup = db.presence.subscribeTypedPresence(
     roomId: "canvas-123",
     type: CursorPresence.self,
     initialPresence: CursorPresence(x: 100, y: 200, color: "blue")
 ) { peers in
     for (peerId, cursor) in peers {
-        // cursor is CursorPresence, fully typed
         drawCursor(at: cursor.x, cursor.y, color: cursor.color)
     }
 }
@@ -231,39 +220,31 @@ let cleanup = db.presence.subscribeTypedPresence(
 ### Topic Pub/Sub (Broadcast)
 
 ```swift
-// Subscribe to a topic for ephemeral messages
 let unsub = db.presence.subscribeTopic(roomId: "chat-room", topic: "reactions") { payload in
     if let emoji = payload["emoji"] as? String {
         showReaction(emoji)
     }
 }
 
-// Publish to topic (broadcast to all peers)
 db.presence.publishTopic(roomId: "chat-room", topic: "reactions", data: ["emoji": "🎉"])
 ```
 
 ## Storage (File Upload/Download)
 
-Upload and manage files:
-
 ```swift
-// Upload file data
 let fileId = try await db.storage.uploadFile(
     path: "photos/avatar.jpg",
     data: imageData,
     options: .init(contentType: "image/jpeg")
 )
 
-// Upload from file URL
 let fileId = try await db.storage.uploadFile(
     path: "documents/report.pdf",
     fileURL: localFileURL
 )
 
-// Get signed download URL
 let downloadURL = try await db.storage.downloadURL(path: "photos/avatar.jpg")
 
-// Delete a file
 let deletedId = try await db.storage.deleteFile(path: "photos/avatar.jpg")
 ```
 
@@ -277,11 +258,9 @@ The SDK works offline by default:
 - **Query caching** - Query results persist across sessions
 
 ```swift
-// This works even offline - UI updates immediately
 try db.transact {
     Todo.create(title: "Buy groceries")
 }
-// Transaction queues and syncs when online
 ```
 
 ## Connection Status
