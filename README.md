@@ -1,4 +1,4 @@
-# InstantDB iOS SDK
+# InstantDB Swift SDK
 
 A Swift SDK for [InstantDB](https://instantdb.com) - build real-time, offline-first applications for Apple platforms.
 
