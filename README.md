@@ -303,8 +303,6 @@ refresh, the most common cause is a **broken link attribute in the server schema
 - The attribute exists but has `value-type: blob` instead of `ref`, or
 - The attribute is a `ref` but is missing `reverse-identity` metadata.
 
-#### Why This Matters
-
 The Swift SDK assembles nested query results client-side. For `ref` attributes, it relies
 on `reverse-identity` to understand which namespace and label represent the other side of
 the relationship. Without that metadata, the SDK cannot perform the join reliably.
