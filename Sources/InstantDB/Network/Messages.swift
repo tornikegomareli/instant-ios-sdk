@@ -95,6 +95,92 @@ public struct TransactMessage: ClientMessage {
   }
 }
 
+// MARK: - Room/Presence Messages
+
+/// Join a room for presence and topics
+public struct JoinRoomMessage: ClientMessage {
+  public let op = "join-room"
+  public let clientEventId: String
+  public let roomId: String
+  public let data: AnyCodable?
+  
+  enum CodingKeys: String, CodingKey {
+    case op
+    case clientEventId = "client-event-id"
+    case roomId = "room-id"
+    case data
+  }
+  
+  public init(clientEventId: String, roomId: String, data: [String: Any]? = nil) {
+    self.clientEventId = clientEventId
+    self.roomId = roomId
+    self.data = data.map { AnyCodable($0) }
+  }
+}
+
+/// Leave a room
+public struct LeaveRoomMessage: ClientMessage {
+  public let op = "leave-room"
+  public let clientEventId: String
+  public let roomId: String
+  
+  enum CodingKeys: String, CodingKey {
+    case op
+    case clientEventId = "client-event-id"
+    case roomId = "room-id"
+  }
+  
+  public init(clientEventId: String, roomId: String) {
+    self.clientEventId = clientEventId
+    self.roomId = roomId
+  }
+}
+
+/// Set presence data in a room
+public struct SetPresenceMessage: ClientMessage {
+  public let op = "set-presence"
+  public let clientEventId: String
+  public let roomId: String
+  public let data: AnyCodable
+  
+  enum CodingKeys: String, CodingKey {
+    case op
+    case clientEventId = "client-event-id"
+    case roomId = "room-id"
+    case data
+  }
+  
+  public init(clientEventId: String, roomId: String, data: [String: Any]) {
+    self.clientEventId = clientEventId
+    self.roomId = roomId
+    self.data = AnyCodable(data)
+  }
+}
+
+/// Broadcast a message to a topic in a room
+public struct ClientBroadcastMessage: ClientMessage {
+  public let op = "client-broadcast"
+  public let clientEventId: String
+  public let roomId: String
+  public let topic: String
+  public let data: AnyCodable
+  
+  enum CodingKeys: String, CodingKey {
+    case op
+    case clientEventId = "client-event-id"
+    case roomId = "room-id"
+    case topic
+    case data
+  }
+  
+  public init(clientEventId: String, roomId: String, topic: String, data: [String: Any]) {
+    self.clientEventId = clientEventId
+    self.roomId = roomId
+    self.topic = topic
+    self.data = AnyCodable(data)
+  }
+}
+
 // MARK: - Server → Client Messages
 
 /// Server message envelope
@@ -207,7 +293,7 @@ public struct ErrorMessage: Codable {
 // MARK: - Helper Types
 
 /// Type-erased Codable wrapper
-public struct AnyCodable: Codable {
+public struct AnyCodable: Codable, @unchecked Sendable, Equatable {
   public let value: Any
   
   public init(_ value: Any) {
@@ -221,6 +307,8 @@ public struct AnyCodable: Codable {
       value = bool
     } else if let int = try? container.decode(Int.self) {
       value = int
+    } else if let int64 = try? container.decode(Int64.self) {
+      value = int64
     } else if let double = try? container.decode(Double.self) {
       value = double
     } else if let string = try? container.decode(String.self) {
@@ -242,6 +330,8 @@ public struct AnyCodable: Codable {
       try container.encode(bool)
     case let int as Int:
       try container.encode(int)
+    case let int64 as Int64:
+      try container.encode(int64)
     case let double as Double:
       try container.encode(double)
     case let string as String:
@@ -258,6 +348,78 @@ public struct AnyCodable: Codable {
         debugDescription: "Cannot encode value of type \(type(of: value))"
       )
       throw EncodingError.invalidValue(value, context)
+    }
+  }
+
+  public static func == (lhs: AnyCodable, rhs: AnyCodable) -> Bool {
+    Self.areEqual(lhs.value, rhs.value)
+  }
+
+  private static func areEqual(_ lhs: Any, _ rhs: Any) -> Bool {
+    switch (lhs, rhs) {
+    case (is NSNull, is NSNull):
+      return true
+
+    case let (l as Bool, r as Bool):
+      return l == r
+
+    case let (l as Int, r as Int):
+      return l == r
+    case let (l as Int64, r as Int64):
+      return l == r
+    case let (l as Double, r as Double):
+      return l == r
+    case let (l as Int, r as Int64):
+      return Int64(l) == r
+    case let (l as Int64, r as Int):
+      return l == Int64(r)
+    case let (l as Int, r as Double):
+      return Double(l) == r
+    case let (l as Double, r as Int):
+      return l == Double(r)
+    case let (l as Int64, r as Double):
+      return Double(l) == r
+    case let (l as Double, r as Int64):
+      return l == Double(r)
+
+    case let (l as String, r as String):
+      return l == r
+
+    case let (l as [Any], r as [Any]):
+      guard l.count == r.count else { return false }
+      for (left, right) in zip(l, r) {
+        if !areEqual(left, right) { return false }
+      }
+      return true
+
+    case let (l as [AnyCodable], r as [AnyCodable]):
+      guard l.count == r.count else { return false }
+      for (left, right) in zip(l, r) {
+        if !areEqual(left.value, right.value) { return false }
+      }
+      return true
+
+    case let (l as [String: Any], r as [String: Any]):
+      guard l.count == r.count else { return false }
+      for (key, leftValue) in l {
+        guard let rightValue = r[key] else { return false }
+        if !areEqual(leftValue, rightValue) { return false }
+      }
+      return true
+
+    case let (l as [String: AnyCodable], r as [String: AnyCodable]):
+      guard l.count == r.count else { return false }
+      for (key, leftValue) in l {
+        guard let rightValue = r[key] else { return false }
+        if !areEqual(leftValue.value, rightValue.value) { return false }
+      }
+      return true
+
+    case let (l as AnyCodable, r as AnyCodable):
+      return areEqual(l.value, r.value)
+
+    default:
+      return String(describing: lhs) == String(describing: rhs)
     }
   }
 }

@@ -7,6 +7,8 @@ let package = Package(
   platforms: [
     .iOS(.v15),
     .macOS(.v10_15),
+    .tvOS(.v15),
+    .watchOS(.v8),
   ],
   products: [
     .library(
@@ -22,7 +24,8 @@ let package = Package(
     .package(url: "https://github.com/google/GoogleSignIn-iOS", from: "9.0.0"),
     .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "600.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.3.2"),
-    .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0")
+    .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
+    .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0")
   ],
   targets: [
     .macro(
@@ -38,8 +41,9 @@ let package = Package(
       name: "InstantDB",
       dependencies: [
         "InstantDBMacros",
-        .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS"),
-        .product(name: "ConcurrencyExtras", package: "swift-concurrency-extras")
+        .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS", condition: .when(platforms: [.iOS, .macOS])),
+        .product(name: "ConcurrencyExtras", package: "swift-concurrency-extras"),
+        .product(name: "GRDB", package: "GRDB.swift")
       ],
       path: "Sources/InstantDB"
     ),

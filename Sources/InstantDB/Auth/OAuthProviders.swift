@@ -9,7 +9,7 @@ public enum OAuthProvider {
   case linkedin(clientName: String = "linkedin-ios")
   case clerk(clientName: String = "clerk")
 
-  var clientName: String {
+  public var clientName: String {
     switch self {
     case .apple(let clientName):
       return clientName

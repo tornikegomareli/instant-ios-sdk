@@ -50,6 +50,27 @@ public struct TypedQuery<T: InstantEntity> {
     copy.whereClause = predicate.toDict()
     return copy
   }
+  
+  /// Filters query results using a raw where clause dictionary.
+  ///
+  /// This is useful for dynamic queries where the filter is built programmatically.
+  ///
+  /// - Parameter clause: A dictionary representing the where clause in InstantDB format.
+  /// - Returns: A new query with the filter applied.
+  ///
+  /// ## Example
+  /// ```swift
+  /// // Filter by title containing "hello" (case-insensitive)
+  /// query.where(["title": ["$ilike": "%hello%"]])
+  ///
+  /// // Filter by done status
+  /// query.where(["done": false])
+  /// ```
+  public func `where`(_ clause: [String: Any]) -> TypedQuery<T> {
+    var copy = self
+    copy.whereClause = clause
+    return copy
+  }
 
   /// Limits the maximum number of results (offset-based pagination)
   ///
@@ -141,6 +162,137 @@ public struct TypedQuery<T: InstantEntity> {
   public func order<V>(by keyPath: KeyPath<T, V>, _ direction: SortDirection = .asc) -> TypedQuery<T> {
     let fieldName = extractFieldName(from: keyPath)
     return order(by: fieldName, direction)
+  }
+  
+  /// Include a linked entity in the query results.
+  ///
+  /// This enables fetching related entities in a single query.
+  ///
+  /// ```swift
+  /// // Include author in post results
+  /// db.query(Post.self).with("author")
+  ///
+  /// // Include multiple relations
+  /// db.query(Post.self).with("author").with("comments")
+  /// ```
+  ///
+  /// - Parameter linkName: The name of the link field to include
+  /// - Returns: A new query with the link inclusion
+  ///
+  /// - Note: Prefer the type-safe `.with(\.linkName)` overload when possible.
+  public func with(_ linkName: String) -> TypedQuery<T> {
+    var copy = self
+    // In InstaQL, nested queries are represented as: { linkName: {} }
+    copy.nestedQueries[linkName] = [:] as [String: Any]
+    return copy
+  }
+  
+  /// Include a linked entity in the query results (type-safe).
+  ///
+  /// This is the preferred way to include links as it provides compile-time
+  /// validation that the link field exists on the entity type.
+  ///
+  /// ```swift
+  /// // Type-safe: compiler validates that Post has an 'author' property
+  /// db.query(Post.self).with(\.author)
+  ///
+  /// // Chain multiple links
+  /// db.query(Post.self).with(\.author).with(\.comments)
+  /// ```
+  ///
+  /// - Parameter keyPath: KeyPath to the link field (must be an optional property)
+  /// - Returns: A new query with the link inclusion
+  public func with<V>(_ keyPath: KeyPath<T, V?>) -> TypedQuery<T> {
+    let fieldName = extractFieldName(from: keyPath)
+    return with(fieldName)
+  }
+  
+  /// Include a linked entity array in the query results (type-safe).
+  ///
+  /// Use this for has-many relationships where the link field is an optional array.
+  ///
+  /// ```swift
+  /// // Type-safe: compiler validates that Post has a 'comments' property
+  /// db.query(Post.self).with(\.comments)
+  /// ```
+  ///
+  /// - Parameter keyPath: KeyPath to the link array field
+  /// - Returns: A new query with the link inclusion
+  public func with<V>(_ keyPath: KeyPath<T, [V]?>) -> TypedQuery<T> {
+    let fieldName = extractFieldName(from: keyPath)
+    return with(fieldName)
+  }
+  
+  /// Include multiple linked entities in the query results (type-safe, 2 links).
+  ///
+  /// ```swift
+  /// db.query(Post.self).with(\.author, \.comments)
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - keyPath1: First link field
+  ///   - keyPath2: Second link field
+  /// - Returns: A new query with both link inclusions
+  public func with<V1, V2>(
+    _ keyPath1: KeyPath<T, V1?>,
+    _ keyPath2: KeyPath<T, V2?>
+  ) -> TypedQuery<T> {
+    self.with(keyPath1).with(keyPath2)
+  }
+  
+  /// Include multiple linked entities in the query results (type-safe, 3 links).
+  ///
+  /// ```swift
+  /// db.query(Post.self).with(\.author, \.comments, \.likes)
+  /// ```
+  public func with<V1, V2, V3>(
+    _ keyPath1: KeyPath<T, V1?>,
+    _ keyPath2: KeyPath<T, V2?>,
+    _ keyPath3: KeyPath<T, V3?>
+  ) -> TypedQuery<T> {
+    self.with(keyPath1).with(keyPath2).with(keyPath3)
+  }
+  
+  /// Include multiple linked entities in the query results (type-safe, 4 links).
+  public func with<V1, V2, V3, V4>(
+    _ keyPath1: KeyPath<T, V1?>,
+    _ keyPath2: KeyPath<T, V2?>,
+    _ keyPath3: KeyPath<T, V3?>,
+    _ keyPath4: KeyPath<T, V4?>
+  ) -> TypedQuery<T> {
+    self.with(keyPath1).with(keyPath2).with(keyPath3).with(keyPath4)
+  }
+  
+  /// Include multiple linked entities in the query results.
+  ///
+  /// ```swift
+  /// db.query(Post.self).including(["author", "comments", "likes"])
+  /// ```
+  ///
+  /// - Parameter linkNames: Set of link field names to include
+  /// - Returns: A new query with all link inclusions
+  ///
+  /// - Note: Prefer the type-safe `.with(\.link1, \.link2)` overloads when possible.
+  public func including(_ linkNames: Set<String>) -> TypedQuery<T> {
+    var copy = self
+    for linkName in linkNames {
+      copy.nestedQueries[linkName] = [:] as [String: Any]
+    }
+    return copy
+  }
+
+  /// Include nested linked entities in the query results (InstaQL format).
+  ///
+  /// This allows for arbitrary nesting of queries.
+  ///
+  /// - Parameter nested: A dictionary representing the nested query structure.
+  /// - Returns: A new query with the nested links included.
+  public func including(_ nested: [String: Any]) -> TypedQuery<T> {
+    var copy = self
+    for (key, value) in nested {
+      copy.nestedQueries[key] = value
+    }
+    return copy
   }
 
   /// Convert to InstaQL dictionary format
@@ -333,7 +485,7 @@ public func || (lhs: PredicateExpression, rhs: PredicateExpression) -> Predicate
 
 enum ComparisonOperator: String {
   case eq = "$eq"
-  case neq = "$neq"
+  case neq = "$ne"
   case gt = "$gt"
   case gte = "$gte"
   case lt = "$lt"
@@ -355,8 +507,8 @@ struct ComparisonPredicate: PredicateExpression {
 }
 
 enum LogicalOperator: String {
-  case and = "$and"
-  case or = "$or"
+  case and = "and"
+  case or = "or"
 }
 
 struct LogicalPredicate: PredicateExpression {
@@ -365,13 +517,11 @@ struct LogicalPredicate: PredicateExpression {
   let right: PredicateExpression
 
   func toDict() -> [String: Any] {
-    let leftDict = left.toDict()
-    let rightDict = right.toDict()
-
-    var merged: [String: Any] = [:]
-    merged.merge(leftDict) { _, new in new }
-    merged.merge(rightDict) { _, new in new }
-
-    return merged
+    [
+      op.rawValue: [
+        left.toDict(),
+        right.toDict(),
+      ]
+    ]
   }
 }

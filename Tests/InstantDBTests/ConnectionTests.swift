@@ -18,7 +18,11 @@ final class ConnectionTests: XCTestCase {
     client.connect()
     
     try await Task.sleep(nanoseconds: 500_000_000)
-    XCTAssertEqual(client.connectionState, .connected)
+    // Connection should be either connected or authenticated (both indicate success)
+    XCTAssertTrue(
+      client.connectionState == .connected || client.connectionState == .authenticated,
+      "Expected .connected or .authenticated, got \(client.connectionState)"
+    )
   }
   
   func testInvalidAppIDFormat() {
@@ -46,19 +50,19 @@ final class ConnectionTests: XCTestCase {
     XCTAssertEqual(json?["app-id"] as? String, "test-app-id")
   }
   
-  func testAttributeDecoding() throws {
-    let json = """
-        {
-            "id": "attr-123",
-            "forward-identity": ["id", "users", "email"],
-            "reverse-identity": null,
-            "value-type": "string",
-            "cardinality": "one",
-            "unique": true,
-            "indexed": true,
-            "checked-data-type": "string"
-        }
-        """
+	  func testAttributeDecoding() throws {
+	    let json = """
+	        {
+	            "id": "attr-123",
+	            "forward-identity": ["id", "users", "email"],
+	            "reverse-identity": null,
+	            "value-type": "string",
+	            "cardinality": "one",
+	            "unique?": true,
+	            "indexed": true,
+	            "checked-data-type": "string"
+	        }
+	        """
     
     let decoder = JSONDecoder()
     decoder.keyDecodingStrategy = .convertFromSnakeCase

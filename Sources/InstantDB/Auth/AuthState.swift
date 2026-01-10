@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents the current authentication state
-public enum AuthState: Equatable {
+public enum AuthState: Equatable, Sendable {
 
   /// Initial state, checking for stored tokens
   case loading
