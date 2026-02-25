@@ -82,6 +82,27 @@ public final class OptimisticUpdateManager: @unchecked Sendable {
       return eventId
     }
   }
+
+  /// Adds a mutation with a specific event ID.
+  ///
+  /// Used by `InstantClient.transactLocalFirst` which has already generated
+  /// the `eventId` (shared with SQLite persistence and the server protocol).
+  @discardableResult
+  public func addMutation(_ txSteps: [[Any]], eventId: String) -> String {
+    lock.withLock {
+      orderCounter += 1
+
+      let mutation = PendingMutation(
+        eventId: eventId,
+        txSteps: txSteps,
+        createdAt: Date(),
+        order: orderCounter
+      )
+
+      pendingMutations[eventId] = mutation
+      return eventId
+    }
+  }
   
   /// Confirms a mutation with the server's transaction ID.
   ///
