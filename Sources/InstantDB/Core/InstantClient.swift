@@ -389,6 +389,7 @@ public final class InstantClient: ObservableObject {
           
           let merged = self.mergingServerAttributes(attrs)
           self.attributes = merged
+          self.queryManager.attributes = merged
 
           if let localStorage {
             do {
@@ -467,37 +468,30 @@ public final class InstantClient: ObservableObject {
   }
   
   private func handleAddQueryOk(_ message: ServerMessage) {
-    if let resultValue = message.data["result"]?.value,
-         let jsonData = try? JSONSerialization.data(withJSONObject: resultValue, options: .prettyPrinted),
-         let jsonString = String(data: jsonData, encoding: .utf8) {
-        InstantLog.debug("[InstantDB] DEBUG add-query-ok full result:")
-        InstantLog.debug(jsonString)
-      }
+    let processedTxId: Int64? = {
+      guard let value = message.data["processed-tx-id"]?.value else { return nil }
+      return parseInt64(value)
+    }()
 
-    if let processedTxValue = message.data["processed-tx-id"]?.value,
-       let processedTxId = parseInt64(processedTxValue) {
+    if let processedTxId {
       Task { @MainActor in
         await self.persistAndCleanupProcessedTxId(processedTxId)
       }
     }
     
-    // Parse result array
     guard let resultArray = message.data["result"]?.value as? [[String: Any]] else {
       InstantLog.warning("[InstantDB] Add-query-ok missing result array")
       return
     }
 
-    // Let QueryManager process the result with client-side sorting
-    // (QueryManager has access to the subscription's query which contains the order)
     Task { @MainActor in
       self.queryManager.handleQueryResult(
         eventId: message.clientEventId,
         rawResult: resultArray,
-        attributes: self.attributes
+        attributes: self.attributes,
+        processedTxId: processedTxId
       )
     }
-
-    InstantLog.debug("[InstantDB] ✓ Query result delivered")
   }
   
   private func handleAddQueryExists(_ message: ServerMessage) {
@@ -542,6 +536,16 @@ public final class InstantClient: ObservableObject {
     }
 
     inFlightMutationEventIds.remove(eventId)
+
+    // Mark the mutation as confirmed in the in-memory optimistic manager.
+    // The mutation stays in the manager (still applied optimistically) until
+    // refresh-ok arrives with a processedTxId that covers this txId.
+    //
+    // ## TypeScript Reference
+    // Equivalent to Reactor.js transact-ok handler (lines 675-683):
+    //   prev.set(eventId, { ...prev.get(eventId), 'tx-id': txId, confirmed: Date.now() });
+    // Note: TypeScript does NOT call notifyAll() here — the data hasn't visually changed.
+    queryManager.optimisticManager.confirmMutation(eventId: eventId, txId: txId)
 
     if let localStorage {
       Task { @MainActor in
@@ -595,6 +599,7 @@ public final class InstantClient: ObservableObject {
       if let refreshedAttributes {
         let merged = self.mergingServerAttributes(refreshedAttributes)
         self.attributes = merged
+        self.queryManager.attributes = merged
         InstantLog.debug("[InstantDB] ✓ Updated \(merged.count) attributes from refresh")
 
         if let localStorage {
@@ -612,7 +617,8 @@ public final class InstantClient: ObservableObject {
 
       self.queryManager.handleRefresh(
         computations: computations,
-        attributes: self.attributes
+        attributes: self.attributes,
+        processedTxId: processedTxId
       )
     }
 
@@ -1046,6 +1052,7 @@ extension InstantClient {
       let cached = try await localStorage.loadAttrs()
       guard !cached.isEmpty else { return }
       attributes = cached
+      queryManager.attributes = cached
     } catch {
       InstantLog.warning("[InstantDB] Failed to load persisted schema attributes: \(error)")
     }
@@ -1183,6 +1190,8 @@ extension InstantClient {
         attributes.append(attr)
       }
     }
+
+    queryManager.attributes = attributes
   }
 
   /// Returns a merged view of server attributes over the current schema cache.
@@ -1361,11 +1370,9 @@ extension InstantClient {
         throw InstantError.notAuthenticated
       }
 
-      // DEBUG: Log tx-steps being sent when localStorage is nil
-      InstantLog.debug("[InstantDB] transactLocalFirst (no localStorage) - Sending \(txSteps.count) steps:")
-      for (index, step) in txSteps.enumerated() {
-        InstantLog.debug("[InstantDB]   Step \(index): \(step)")
-      }
+      // Even without localStorage, apply optimistically for instant UI.
+      queryManager.optimisticManager.addMutation(txSteps, eventId: eventId)
+      queryManager.notifyAll()
 
       let message = TransactMessage(clientEventId: eventId, txSteps: txSteps)
       try connection.send(message)
@@ -1377,6 +1384,22 @@ extension InstantClient {
       txSteps: txSteps,
       createdAt: Date()
     )
+
+    // Add to the in-memory optimistic manager so that query results
+    // immediately reflect this mutation (before the server confirms it).
+    //
+    // ## TypeScript Reference
+    // Equivalent to `pushOps` in Reactor.js (line 1283):
+    //   `this._updatePendingMutations((prev) => { prev.set(eventId, mutation); });`
+    queryManager.optimisticManager.addMutation(txSteps, eventId: eventId)
+
+    // Re-compute all active query subscriptions with the new optimistic state.
+    // This is what makes the UI update instantly — before the server round-trip.
+    //
+    // ## TypeScript Reference
+    // Equivalent to `this.notifyAll()` in Reactor.js (line 1290), called right
+    // after adding the mutation to pendingMutations.
+    queryManager.notifyAll()
 
     // Do not send this mutation directly.
     //
