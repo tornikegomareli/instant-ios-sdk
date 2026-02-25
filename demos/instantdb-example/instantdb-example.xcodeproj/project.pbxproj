@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9EDF91932F4DC1A70058073D /* DemoWatchOS Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 9EDF91892F4DC1A60058073D /* DemoWatchOS Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		9EDF91AB2F4DC7010058073D /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = 9EDF91AA2F4DC7010058073D /* InstantDB */; };
 		E615F2E72ECFBA5D00AA508A /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E615F2E62ECFBA5D00AA508A /* InstantDB */; };
 		E6637CF52EA8460300EE0ECD /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E6637CF42EA8460300EE0ECD /* InstantDB */; };
 		E677AD992EAED5C30067ED59 /* InstantDB in Frameworks */ = {isa = PBXBuildFile; productRef = E677AD982EAED5C30067ED59 /* InstantDB */; };
@@ -16,15 +18,54 @@
 		E6E505F82EB2C60C00F37F34 /* Clerk in Frameworks */ = {isa = PBXBuildFile; productRef = E6E505F72EB2C60C00F37F34 /* Clerk */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		9EDF91912F4DC1A70058073D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E6637CDD2EA845F000EE0ECD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9EDF91882F4DC1A60058073D;
+			remoteInfo = "DemoWatchOS Watch App";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		9EDF91972F4DC1A70058073D /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				9EDF91932F4DC1A70058073D /* DemoWatchOS Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		9EDF91892F4DC1A60058073D /* DemoWatchOS Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "DemoWatchOS Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E6637CE52EA845F000EE0ECD /* instantdb-example.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "instantdb-example.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9EDF919F2F4DC65C0058073D /* Exceptions for "instantdb-example" folder in "DemoWatchOS Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Config/Config.swift,
+				Models/Goal.swift,
+				ViewModels/GoalsViewModel.swift,
+				ViewModels/PresenceViewModel.swift,
+				Views/AuthView.swift,
+				Views/ConnectionBanner.swift,
+				Views/DemoTabView.swift,
+				Views/GoalsView.swift,
+				Views/PresenceView.swift,
+			);
+			target = 9EDF91882F4DC1A60058073D /* DemoWatchOS Watch App */;
+		};
 		E6B9995D2EB40AE1006BF406 /* Exceptions for "instantdb-example" folder in "instantdb-example" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Config/Config.example.swift,
 				Info.plist,
 			);
 			target = E6637CE42EA845F000EE0ECD /* instantdb-example */;
@@ -32,10 +73,16 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		9EDF918A2F4DC1A60058073D /* DemoWatchOS Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "DemoWatchOS Watch App";
+			sourceTree = "<group>";
+		};
 		E6637CE72EA845F000EE0ECD /* instantdb-example */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				E6B9995D2EB40AE1006BF406 /* Exceptions for "instantdb-example" folder in "instantdb-example" target */,
+				9EDF919F2F4DC65C0058073D /* Exceptions for "instantdb-example" folder in "DemoWatchOS Watch App" target */,
 			);
 			path = "instantdb-example";
 			sourceTree = "<group>";
@@ -43,6 +90,14 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		9EDF91862F4DC1A60058073D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9EDF91AB2F4DC7010058073D /* InstantDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E6637CE22EA845F000EE0ECD /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -60,10 +115,19 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		9EDF91A92F4DC7010058073D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		E6637CDC2EA845F000EE0ECD = {
 			isa = PBXGroup;
 			children = (
 				E6637CE72EA845F000EE0ECD /* instantdb-example */,
+				9EDF918A2F4DC1A60058073D /* DemoWatchOS Watch App */,
+				9EDF91A92F4DC7010058073D /* Frameworks */,
 				E6637CE62EA845F000EE0ECD /* Products */,
 			);
 			sourceTree = "<group>";
@@ -72,6 +136,7 @@
 			isa = PBXGroup;
 			children = (
 				E6637CE52EA845F000EE0ECD /* instantdb-example.app */,
+				9EDF91892F4DC1A60058073D /* DemoWatchOS Watch App.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -79,6 +144,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		9EDF91882F4DC1A60058073D /* DemoWatchOS Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9EDF91942F4DC1A70058073D /* Build configuration list for PBXNativeTarget "DemoWatchOS Watch App" */;
+			buildPhases = (
+				9EDF91852F4DC1A60058073D /* Sources */,
+				9EDF91862F4DC1A60058073D /* Frameworks */,
+				9EDF91872F4DC1A60058073D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				9EDF918A2F4DC1A60058073D /* DemoWatchOS Watch App */,
+			);
+			name = "DemoWatchOS Watch App";
+			packageProductDependencies = (
+				9EDF91AA2F4DC7010058073D /* InstantDB */,
+			);
+			productName = "DemoWatchOS Watch App";
+			productReference = 9EDF91892F4DC1A60058073D /* DemoWatchOS Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
 		E6637CE42EA845F000EE0ECD /* instantdb-example */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E6637CF02EA845F200EE0ECD /* Build configuration list for PBXNativeTarget "instantdb-example" */;
@@ -86,10 +174,12 @@
 				E6637CE12EA845F000EE0ECD /* Sources */,
 				E6637CE22EA845F000EE0ECD /* Frameworks */,
 				E6637CE32EA845F000EE0ECD /* Resources */,
+				9EDF91972F4DC1A70058073D /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				9EDF91922F4DC1A70058073D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				E6637CE72EA845F000EE0ECD /* instantdb-example */,
@@ -115,9 +205,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2600;
+				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					9EDF91882F4DC1A60058073D = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					E6637CE42EA845F000EE0ECD = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
@@ -143,11 +236,19 @@
 			projectRoot = "";
 			targets = (
 				E6637CE42EA845F000EE0ECD /* instantdb-example */,
+				9EDF91882F4DC1A60058073D /* DemoWatchOS Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		9EDF91872F4DC1A60058073D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E6637CE32EA845F000EE0ECD /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -158,6 +259,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		9EDF91852F4DC1A60058073D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E6637CE12EA845F000EE0ECD /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -167,7 +275,81 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		9EDF91922F4DC1A70058073D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9EDF91882F4DC1A60058073D /* DemoWatchOS Watch App */;
+			targetProxy = 9EDF91912F4DC1A70058073D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		9EDF91952F4DC1A70058073D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4EC72DECN9;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = DemoWatchOS;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "com.mlustig.instantdb-example";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mlustig.instantdb-example.watchkitapp";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		9EDF91962F4DC1A70058073D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4EC72DECN9;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = DemoWatchOS;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "com.mlustig.instantdb-example";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.mlustig.instantdb-example.watchkitapp";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
 		E6637CEE2EA845F200EE0ECD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -314,6 +496,10 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.mlustig.instantdb-example";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -348,6 +534,10 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.mlustig.instantdb-example";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -360,6 +550,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		9EDF91942F4DC1A70058073D /* Build configuration list for PBXNativeTarget "DemoWatchOS Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9EDF91952F4DC1A70058073D /* Debug */,
+				9EDF91962F4DC1A70058073D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		E6637CE02EA845F000EE0ECD /* Build configuration list for PBXProject "instantdb-example" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -407,6 +606,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		9EDF91AA2F4DC7010058073D /* InstantDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E615F2E52ECFBA5D00AA508A /* XCLocalSwiftPackageReference "../../../instant-ios-sdk" */;
+			productName = InstantDB;
+		};
 		E615F2E62ECFBA5D00AA508A /* InstantDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = InstantDB;

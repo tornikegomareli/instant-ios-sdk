@@ -2,7 +2,7 @@ import SwiftUI
 import InstantDB
 
 @main
-struct instantdb_exampleApp: App {
+struct DemoWatchOSApp: App {
   let db = InstantClient(appID: AppConfig.instantAppID)
 
   var body: some Scene {
