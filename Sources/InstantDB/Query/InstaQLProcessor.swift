@@ -378,19 +378,17 @@ struct InstaQLProcessor {
     }
     
     // Convert to InstaQL format: {namespace: [entity1, entity2, ...]}
-    // Apply client-side sorting if order is specified (like TypeScript client does)
     var instaqlData: [String: Any] = [:]
     for (namespace, entitiesById) in entities {
       var entityArray = Array(entitiesById.values)
       
-      // Apply client-side sorting if order is specified
-      // This matches the TypeScript client behavior in instaql.ts lines 723-730
       if let order = order {
+        // Explicit order requested by the query.
+        // This matches the TypeScript client behavior in instaql.ts lines 723-730.
         entityArray.sort { a, b in
           let aValue = a[order.field]
           let bValue = b[order.field]
           
-          // Handle comparison based on value types
           let comparison: Int
           if let aNum = aValue as? Double, let bNum = bValue as? Double {
             comparison = aNum < bNum ? -1 : (aNum > bNum ? 1 : 0)
@@ -399,14 +397,24 @@ struct InstaQLProcessor {
           } else if let aInt = aValue as? Int, let bInt = bValue as? Int {
             comparison = aInt < bInt ? -1 : (aInt > bInt ? 1 : 0)
           } else {
-            // Fallback: compare string representations
             let aDesc = String(describing: aValue ?? "")
             let bDesc = String(describing: bValue ?? "")
             comparison = aDesc.compare(bDesc).rawValue
           }
           
-          // Apply direction
           return order.direction == .asc ? comparison < 0 : comparison > 0
+        }
+      } else {
+        // No explicit order — sort by entity ID for stable output.
+        //
+        // Swift dictionaries have no guaranteed iteration order, so without
+        // this, the entity array would shuffle every time the data is rebuilt
+        // (from optimistic updates or server refreshes), causing visible list
+        // reordering in the UI.
+        entityArray.sort { a, b in
+          let aId = a["id"] as? String ?? ""
+          let bId = b["id"] as? String ?? ""
+          return aId < bId
         }
       }
       
