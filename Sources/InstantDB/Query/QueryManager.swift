@@ -2,23 +2,23 @@ import Foundation
 
 // MARK: - QueryManager
 
-/// Manages query subscriptions and their lifecycle.
+/// Manages query subscriptions with optimistic updates.
 ///
-/// ## Overview
-/// QueryManager is the central coordinator for all active query subscriptions in the SDK.
-/// It handles subscription creation, deduplication, result delivery, and cleanup.
+/// ## Optimistic Update Architecture (Parity with TypeScript Reactor.js)
 ///
-/// ## Architecture
-/// - Subscriptions are deduplicated by query hash (same query = same subscription)
-/// - Multiple callbacks can be attached to a single subscription
-/// - Results are cached and delivered to new subscribers immediately
-/// - Server responses are routed to the correct subscription via eventId mapping
+/// Each subscription stores the **raw server result** as the base truth. When results
+/// are delivered to callbacks, `dataForQuery` merges pending mutations on top:
+///
+/// 1. Extract triples from the raw server result
+/// 2. Build a fresh `TripleStore` from those triples
+/// 3. Apply pending mutations (skipping those already processed by the server)
+/// 4. Re-run `InstaQLProcessor` on the optimistic store's triples
+///
+/// This matches the TypeScript SDK's `dataForQuery` → `_applyOptimisticUpdates` →
+/// `instaql()` pipeline.
 ///
 /// ## Thread Safety
-/// This class is marked `@MainActor` because subscription state must be synchronized
-/// with UI updates. All mutations happen on the main thread.
-///
-/// - TODO: Replace print statements with a proper Logger for configurable log levels
+/// `@MainActor` — all subscription state is synchronized with UI updates.
 @MainActor
 final class QueryManager {
 
@@ -26,23 +26,24 @@ final class QueryManager {
   
   private let localStorage: LocalStorage?
 
-  /// Active subscriptions indexed by query hash.
+  /// In-memory tracker for pending mutations.
   ///
-  /// The hash is computed from the JSON representation of the query,
-  /// ensuring identical queries share a single subscription.
+  /// `InstantClient` adds/confirms/cleans up mutations through this manager.
+  /// `dataForQuery` reads pending mutations to merge optimistic updates.
+  let optimisticManager = OptimisticUpdateManager()
+
+  /// Active subscriptions indexed by query hash.
   private var subscriptions: [String: QuerySubscription] = [:]
 
   /// Maps server event IDs to query hashes.
-  ///
-  /// When the server responds to a query, it includes the eventId we sent.
-  /// This map lets us route the response to the correct subscription.
   private var eventIdToHash: [String: String] = [:]
 
   /// Callback invoked when a subscription is fully unsubscribed.
-  ///
-  /// The InstantClient uses this to send `remove-query` messages to the server,
-  /// freeing server resources for queries we no longer care about.
   var onRemoveQuery: (([String: Any]) -> Void)?
+
+  /// Current attributes from the server. Set by InstantClient whenever
+  /// attributes are updated (init-ok, refresh-ok, transact-ok).
+  var attributes: [Attribute] = []
 
   // MARK: - Initialization
 
@@ -53,14 +54,6 @@ final class QueryManager {
   // MARK: - Subscription Management
 
   /// Creates or joins a subscription for the given query.
-  ///
-  /// If a subscription for this exact query already exists, the callback is added
-  /// to the existing subscription and receives cached data immediately (if available).
-  ///
-  /// - Parameters:
-  ///   - query: InstaQL query dictionary (e.g., `["todos": ["$": ["where": ...]]]`)
-  ///   - callback: Called when results arrive or update
-  /// - Returns: An unsubscribe function. Call this to remove your callback.
   func subscribe(
     query: [String: Any],
     emitCachedResult: Bool = true,
@@ -68,7 +61,6 @@ final class QueryManager {
   ) -> (() -> Void) {
     let hash = QueryHashing.hash(query)
 
-    // If subscription exists, just add callback
     if var existing = subscriptions[hash] {
       let callbackId = existing.addCallback(callback)
       subscriptions[hash] = existing
@@ -77,7 +69,6 @@ final class QueryManager {
       }
     }
 
-    // Create new subscription
     var subscription = QuerySubscription(query: query)
     let eventId = subscription.eventId
     let callbackId = subscription.addCallback(callback)
@@ -97,51 +88,20 @@ final class QueryManager {
     }
   }
 
-  /// Retrieves a subscription by its hash.
-  ///
-  /// Used by InstantClient to get the eventId for sending to the server.
   func getSubscription(hash: String) -> QuerySubscription? {
     return subscriptions[hash]
   }
 
-  /// Returns all active subscriptions.
   func getPendingSubscriptions() -> [QuerySubscription] {
     return Array(subscriptions.values)
   }
   
   // MARK: - Reconnection Support
   
-  /// Returns all active query subscriptions for re-registration with the server.
-  ///
-  /// ## Why This Exists
-  /// When the WebSocket connection drops and reconnects (due to network changes,
-  /// VPN toggling, app backgrounding, etc.), the server loses track of our active
-  /// subscriptions. Without re-sending these queries, the UI would remain stale
-  /// showing the last known data or an error state.
-  ///
-  /// ## Discovery
-  /// This was discovered during testing with corporate VPNs (Zscaler) where SSL
-  /// inspection would cause connection failures. When the VPN was disabled, the
-  /// connection would recover but the UI stayed stuck on "Connection Error" because
-  /// the queries were never re-sent to the new server session.
-  ///
-  /// ## Usage
-  /// Called by `InstantClient.resendActiveQueries()` after receiving `init-ok`.
-  ///
-  /// - Returns: Tuples of (eventId, query) for each active subscription that needs
-  ///   to be re-registered with the server.
   func getActiveQueries() -> [(eventId: String, query: [String: Any])] {
     return subscriptions.values.map { ($0.eventId, $0.query) }
   }
   
-  /// Transitions all subscriptions to loading state.
-  ///
-  /// ## Why This Exists
-  /// During reconnection, we want the UI to show a loading state rather than
-  /// stale data. This method is called before resending queries so that
-  /// subscribers know fresh data is being fetched.
-  ///
-  /// - Note: Currently unused but available for future reconnection UX improvements.
   func markAllLoading() {
     for (hash, var subscription) in subscriptions {
       subscription.updateResult(.loading)
@@ -149,59 +109,129 @@ final class QueryManager {
     }
   }
 
+  // MARK: - Optimistic Update Pipeline
+
+  /// Computes the query result for a subscription, merging pending mutations
+  /// on top of the server's base data.
+  ///
+  /// ## TypeScript Reference
+  /// Equivalent to `dataForQuery(hash)` in Reactor.js (lines 1149-1186).
+  ///
+  /// Flow:
+  /// 1. Get raw server result from subscription
+  /// 2. Extract triples from the server result
+  /// 3. Build a TripleStore from those triples
+  /// 4. Apply each pending mutation (skipping already-processed ones)
+  /// 5. Extract triples back from the optimistic store
+  /// 6. Re-run InstaQLProcessor
+  private func dataForQuery(hash: String) -> QueryResult? {
+    guard let subscription = subscriptions[hash] else { return nil }
+    guard let rawResult = subscription.rawServerResult else { return nil }
+
+    let order = extractOrder(from: subscription.query)
+    let pendingMutations = optimisticManager.allMutations
+
+    // Fast path: no pending mutations → use server result directly.
+    if pendingMutations.isEmpty {
+      let instaqlData = InstaQLProcessor.process(
+        result: rawResult,
+        attributes: attributes,
+        order: order
+      )
+      let pageInfo = extractPageInfo(from: rawResult)
+      return .success(data: instaqlData, pageInfo: pageInfo)
+    }
+
+    // Slow path: build a TripleStore, apply optimistic mutations, re-run InstaQL.
+    let attrsStore = AttrsStore(attrs: attributes)
+    let store = buildTripleStore(from: rawResult, attrsStore: attrsStore)
+
+    // Apply each pending mutation that the server hasn't processed yet.
+    // This is the equivalent of TypeScript's `_applyOptimisticUpdates`.
+    let processedTxId = subscription.processedTxId
+    for mutation in pendingMutations {
+      if let txId = mutation.txId, let processed = processedTxId, txId <= processed {
+        // Server already includes this mutation's effects — skip.
+        continue
+      }
+      // Convert AnyCodableValue steps back to [[Any]] for applyTransaction.
+      let txSteps: [[Any]] = mutation.txSteps.map { step in
+        step.map { $0.value }
+      }
+      _ = applyTransaction(store: store, attrsStore: attrsStore, txSteps: txSteps)
+    }
+
+    // Extract all triples from the optimistic store and wrap them in the
+    // format InstaQLProcessor.process() expects.
+    let optimisticTriples = store.allTriples()
+    let wrappedResult = wrapTriplesAsServerResult(optimisticTriples)
+
+    let instaqlData = InstaQLProcessor.process(
+      result: wrappedResult,
+      attributes: attributes,
+      order: order
+    )
+    let pageInfo = extractPageInfo(from: rawResult)
+    return .success(data: instaqlData, pageInfo: pageInfo)
+  }
+
+  /// Recompute and deliver results for a single subscription.
+  ///
+  /// ## TypeScript Reference
+  /// Equivalent to `notifyOne(hash)` in Reactor.js (lines 1198-1208).
+  private func notifyOne(hash: String) {
+    guard var subscription = subscriptions[hash] else { return }
+    guard let result = dataForQuery(hash: hash) else { return }
+
+    subscription.updateResult(result)
+    subscriptions[hash] = subscription
+
+    persistQueryResultCache(hash: hash, query: subscription.query, result: result)
+  }
+
+  /// Recompute and deliver results for ALL active subscriptions.
+  ///
+  /// Called after a mutation is added to `optimisticManager` so that every
+  /// query immediately reflects the local change.
+  ///
+  /// ## TypeScript Reference
+  /// Equivalent to `notifyAll()` in Reactor.js (lines 1226-1233).
+  func notifyAll() {
+    for hash in subscriptions.keys {
+      notifyOne(hash: hash)
+    }
+  }
+
   // MARK: - Server Response Handlers
 
-  /// Processes a successful query response from the server.
+  /// Processes a successful query response (`add-query-ok`).
   ///
-  /// Called when the server sends `add-query-ok` with query results.
-  /// Routes the data to the correct subscription via the eventId.
-  ///
-  /// - Parameters:
-  ///   - eventId: The event ID from the server response
-  ///   - rawResult: The raw result array from the server (before InstaQL processing)
-  ///   - attributes: Schema attributes for processing
-  func handleQueryResult(eventId: String?, rawResult: [[String: Any]], attributes: [Attribute]) {
+  /// Stores the raw server result, then delivers via `notifyOne` which merges
+  /// any pending optimistic mutations before notifying callbacks.
+  func handleQueryResult(eventId: String?, rawResult: [[String: Any]], attributes: [Attribute], processedTxId: Int64? = nil) {
     guard let eventId = eventId,
           let hash = eventIdToHash[eventId],
           var subscription = subscriptions[hash] else {
       return
     }
-    
-    // Extract order from the query for client-side sorting
-    let order = extractOrder(from: subscription.query)
-    
-    // Process datalog-result into InstaQL format with client-side sorting
-    let instaqlData = InstaQLProcessor.process(result: rawResult, attributes: attributes, order: order)
-    
-    // Extract page-info if available
-    let pageInfo = rawResult.first?["data"] as? [String: Any]
-    let pageInfoData = pageInfo?["page-info"] as? [String: Any]
 
-    let queryResult = QueryResult.success(data: instaqlData, pageInfo: pageInfoData)
-    subscription.updateResult(queryResult)
+    // Store the raw server result as the authoritative base.
+    subscription.rawServerResult = rawResult
+    subscription.processedTxId = processedTxId
+    self.attributes = attributes
     subscriptions[hash] = subscription
 
-    persistQueryResultCache(hash: hash, query: subscription.query, result: queryResult)
+    // Deliver via notifyOne, which merges optimistic mutations on top.
+    notifyOne(hash: hash)
   }
   
-  /// Handles the server's response when a query already exists.
-  ///
-  /// ## Why This Exists
-  /// The server sends `add-query-exists` when we try to subscribe to a query
-  /// that's already registered (e.g., after reconnection with the same eventId).
-  /// We need to map the eventId and deliver any cached data.
-  ///
-  /// - Parameters:
-  ///   - eventId: The eventId from our subscription request
-  ///   - query: The query that already exists on the server
+  /// Handles `add-query-exists`.
   func handleQueryExists(eventId: String?, query: [String: Any]) {
     guard let eventId = eventId else {
       InstantLog.warning("[QueryManager] handleQueryExists: missing eventId")
       return
     }
     
-    // The eventId maps to the NEW subscription request, but the query already exists
-    // Find the existing subscription by query hash
     let hash = QueryHashing.hash(query)
     
     guard let existingSubscription = subscriptions[hash] else {
@@ -209,80 +239,138 @@ final class QueryManager {
       return
     }
     
-    // Map the new eventId to the existing subscription's hash
     eventIdToHash[eventId] = hash
     
-    // If we have cached data, deliver it to all callbacks (including the new one)
     if !existingSubscription.currentResult.isLoading {
-      InstantLog.debug("[QueryManager] handleQueryExists: delivering cached result to callbacks")
       existingSubscription.notifyCallbacks()
-    } else {
-      InstantLog.debug("[QueryManager] handleQueryExists: subscription exists but still loading")
     }
   }
 
-  /// Processes real-time updates from the server.
+  /// Processes real-time updates (`refresh-ok`).
   ///
-  /// ## How Real-Time Updates Work
-  /// When data changes on the server (from any client), the server sends a
-  /// `refresh-ok` message containing updated results for all affected queries.
-  /// Each "computation" in the response contains the query and its new results.
-  ///
-  /// - Parameters:
-  ///   - computations: Array of query/result pairs from the server
-  ///   - attributes: Current schema attributes for result processing
-  func handleRefresh(computations: [[String: Any]], attributes: [Attribute]) {
-    InstantLog.debug("[QueryManager] handleRefresh with \(computations.count) computations, \(subscriptions.count) active subscriptions")
-    
-    // Debug: print all active subscription hashes
-    for (hash, sub) in subscriptions {
-      if let namespace = sub.query.keys.first {
-        InstantLog.debug("[QueryManager]   active subscription: \(namespace) (hash: \(hash.prefix(20))...)")
-      }
-    }
-    
-    // Each computation has 'instaql-query' and 'instaql-result'
+  /// For each computation, stores the new raw server result, then delivers
+  /// via `notifyOne` which merges any remaining optimistic mutations on top.
+  func handleRefresh(computations: [[String: Any]], attributes: [Attribute], processedTxId: Int64? = nil) {
+    self.attributes = attributes
+
     for computation in computations {
       guard let query = computation["instaql-query"] as? [String: Any],
             let resultArray = computation["instaql-result"] as? [[String: Any]] else {
-        InstantLog.warning("[QueryManager] computation missing instaql-query or instaql-result")
         continue
       }
 
       let hash = QueryHashing.hash(query)
-      InstantLog.debug("[QueryManager] looking for subscription with hash: \(hash.prefix(20))... for query: \(query.keys)")
       
       guard var subscription = subscriptions[hash] else {
-        InstantLog.warning("[QueryManager] ⚠️ No subscription found for refresh query!")
-        // Debug: try to find a similar subscription
-        for (_, sub) in subscriptions {
-          if sub.query.keys == query.keys {
-            InstantLog.debug("[QueryManager]   found subscription with same namespace but different hash")
-            InstantLog.debug("[QueryManager]   server query: \(query)")
-            InstantLog.debug("[QueryManager]   local query: \(sub.query)")
-          }
-        }
         continue
       }
 
-      InstantLog.debug("[QueryManager] ✓ Found subscription, processing \(resultArray.count) results")
-      
-      // Extract order from the query for client-side sorting
-      let order = extractOrder(from: subscription.query)
-      
-      // Process datalog-result into InstaQL format with client-side sorting
-      let instaqlData = InstaQLProcessor.process(result: resultArray, attributes: attributes, order: order)
-
-      // Extract page-info if available
-      let pageInfo = resultArray.first?["data"] as? [String: Any]
-      let pageInfoData = pageInfo?["page-info"] as? [String: Any]
-
-      let queryResult = QueryResult.success(data: instaqlData, pageInfo: pageInfoData)
-      subscription.updateResult(queryResult)
+      // Update the raw server result base and processedTxId.
+      subscription.rawServerResult = resultArray
+      if let processedTxId {
+        subscription.processedTxId = processedTxId
+      }
       subscriptions[hash] = subscription
 
-      persistQueryResultCache(hash: hash, query: subscription.query, result: queryResult)
+      // Deliver via notifyOne, which re-applies remaining optimistic mutations.
+      notifyOne(hash: hash)
     }
+
+    // Clean up mutations that ALL subscriptions have caught up on.
+    cleanupProcessedMutations()
+  }
+
+  // MARK: - Mutation Lifecycle
+
+  /// Clean up pending mutations that all subscriptions have processed.
+  ///
+  /// Finds the minimum `processedTxId` across all subscriptions. Any mutation
+  /// with `txId <= minProcessedTxId` is reflected in every subscription's server
+  /// data and can be safely removed.
+  ///
+  /// ## TypeScript Reference
+  /// Equivalent to `_cleanupPendingMutationsQueries()` in Reactor.js (lines 1384-1399).
+  func cleanupProcessedMutations() {
+    var minProcessedTxId: Int64 = .max
+
+    for subscription in subscriptions.values {
+      if let processedTxId = subscription.processedTxId {
+        minProcessedTxId = min(minProcessedTxId, processedTxId)
+      }
+    }
+
+    guard minProcessedTxId < .max else { return }
+    optimisticManager.cleanupProcessedMutations(processedTxId: minProcessedTxId)
+  }
+
+  // MARK: - Triple Extraction Helpers
+
+  /// Builds a `TripleStore` from raw server result arrays.
+  ///
+  /// Extracts triples from the server's `join-rows` format and indexes them.
+  private func buildTripleStore(from rawResult: [[String: Any]], attrsStore: AttrsStore) -> TripleStore {
+    let store = TripleStore()
+
+    for item in rawResult {
+      guard let data = item["data"] as? [String: Any],
+            let datalogResult = data["datalog-result"] as? [String: Any],
+            let joinRows = datalogResult["join-rows"] as? [[[Any]]] else {
+        continue
+      }
+
+      for rows in joinRows {
+        for tripleArray in rows {
+          guard tripleArray.count >= 3,
+                let entityId = tripleArray[0] as? String,
+                let attrId = tripleArray[1] as? String else {
+            continue
+          }
+
+          let value = tripleArray[2]
+          let createdAt: Int64 = tripleArray.count > 3 ? (tripleArray[3] as? Int64 ?? 0) : 0
+          let tripleValue = TripleValue(fromAny: value)
+
+          let attr = attrsStore.getAttr(attrId)
+          let hasCardinalityOne = attr?.cardinality == .one
+          let isRef = attr?.valueType == .ref
+
+          let triple = Triple(
+            entityId: entityId,
+            attributeId: attrId,
+            value: tripleValue,
+            createdAt: createdAt
+          )
+          store.addTriple(triple, hasCardinalityOne: hasCardinalityOne, isRef: isRef)
+        }
+      }
+    }
+
+    return store
+  }
+
+  /// Wraps extracted triples into the format `InstaQLProcessor.process()` expects.
+  ///
+  /// InstaQLProcessor expects: `[["data": ["datalog-result": ["join-rows": [[[Any]]]]]]]`
+  private func wrapTriplesAsServerResult(_ triples: [Triple]) -> [[String: Any]] {
+    let joinRows: [[[Any]]] = triples.map { triple in
+      [[triple.entityId, triple.attributeId, triple.value.toAny(), triple.createdAt]]
+    }
+
+    return [
+      [
+        "data": [
+          "datalog-result": [
+            "join-rows": joinRows
+          ]
+        ] as [String: Any]
+      ]
+    ]
+  }
+
+  /// Extracts page-info from raw server result.
+  private func extractPageInfo(from rawResult: [[String: Any]]) -> [String: Any]? {
+    let pageInfo = rawResult.first?["data"] as? [String: Any]
+    return pageInfo?["page-info"] as? [String: Any]
   }
 
   // MARK: - Query Cache (Offline Support)
@@ -341,9 +429,6 @@ final class QueryManager {
   }
 
   /// Handles a query error from the server.
-  ///
-  /// Routes the error to the correct subscription so callbacks can display
-  /// appropriate error UI.
   func handleQueryError(eventId: String?, error: Error) {
     guard let eventId = eventId,
           let hash = eventIdToHash[eventId],
@@ -358,10 +443,6 @@ final class QueryManager {
 
   // MARK: - Private Helpers
 
-  /// Removes a callback from a subscription.
-  ///
-  /// If no callbacks remain, the subscription is fully removed and the server
-  /// is notified via `onRemoveQuery`.
   private func unsubscribe(hash: String, callbackId: UUID) {
     guard var subscription = subscriptions[hash] else {
       return
@@ -369,44 +450,17 @@ final class QueryManager {
 
     subscription.removeCallback(id: callbackId)
 
-    // If no callbacks left, remove subscription and notify server
     if subscription.callbacks.isEmpty {
       let query = subscription.query
       subscriptions.removeValue(forKey: hash)
       eventIdToHash.removeValue(forKey: subscription.eventId)
-
-      // Notify InstantClient to send remove-query to server
       onRemoveQuery?(query)
     } else {
       subscriptions[hash] = subscription
     }
   }
 
-  /// Computes a canonical hash for query deduplication.
-  ///
-  /// Identical queries produce identical hashes, allowing multiple subscribers
-  /// to share a single server subscription.
-  ///
-  /// ## Why Canonical Hashing
-  ///
-  /// Dictionary key ordering in Swift is not guaranteed, and JSONSerialization
-  /// may produce different JSON strings for semantically identical dictionaries.
-  /// This function sorts keys recursively to ensure consistent hashing.
-  ///
-  /// For example, these two queries are semantically identical:
-  /// - `["posts": ["$": [...], "author": [:]]]`
-  /// - `["posts": ["author": [:], "$": [...]]]`
-  ///
-  /// Without canonical hashing, they would produce different hashes and the
-  /// server's refresh updates would fail to match the local subscription.
-  /// Extracts the order specification from an InstaQL query.
-  ///
-  /// Query format: `["namespace": ["$": ["order": ["fieldName": "asc|desc"]]]]`
-  ///
-  /// - Parameter query: The InstaQL query dictionary
-  /// - Returns: QueryOrder if order is specified, nil otherwise
   private func extractOrder(from query: [String: Any]) -> QueryOrder? {
-    // Get the first namespace (e.g., "posts")
     guard let (_, namespaceValue) = query.first,
           let namespaceDict = namespaceValue as? [String: Any],
           let modifiers = namespaceDict["$"] as? [String: Any],
