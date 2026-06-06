@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build package
+        run: swift build -v
+
+      - name: Run tests
+        run: swift test -v --parallel
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "✅ Build completed"
+          echo "📊 Check test results above for details"
